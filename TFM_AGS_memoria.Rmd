@@ -1,0 +1,688 @@
+---
+title: ""
+#author: "Azahara M Garcia Serna"
+#date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+    fig_caption: true
+    latex_engine: lualatex
+    df_print: paged
+  word_document:
+    toc: true
+    toc_depth: '3'
+geometry:
+  - top=2cm
+  - bottom=2cm
+  - left=2.5cm
+  - right=2.5cm
+fontsize: 10pt
+mainfont: Arial
+#subtitle: "Caracterizando la Expresión de Retrovirus Endógenos Humanos en el COVID-19"
+linkcolor: black
+toc-title: Tabla de contenidos
+#lang: es
+bibliography: references.bib
+header-includes:
+  \newcommand{\beginsupplement}{\setcounter{table}{0}  
+  \renewcommand{\thetable}{S\arabic{table}} 
+  \setcounter{figure}{0} 
+  \renewcommand{\thefigure}{S\arabic{figure}}} 
+  \renewcommand{\listtablename}{Índice de tablas}
+  \renewcommand{\listfigurename}{Índice de figuras}
+  \renewcommand{\figurename}{Figura}
+  \renewcommand{\tablename}{Tabla}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+\newpage
+\listoffigures
+
+\newpage
+
+\listoftables
+
+\newpage
+
+```{r, echo=FALSE, include=FALSE}
+#packages
+library(readxl)
+library(dplyr)
+
+#databases
+patients_data_all_cov_RIN <- readRDS("D:/Académico/Master Bioinformatica 2022_2023/TFM/endovirusMuestrasSantiago/results_20240527/DE analysis/patients_data_all_cov_RIN.rds")
+
+matrixcount_complete <- readRDS("D:/Académico/Master Bioinformatica 2022_2023/TFM/endovirusMuestrasSantiago/results_20240527/DE analysis/matrixcount_HERV_LINE1_100itr_may24.rds")
+
+dds_prefil_all <- readRDS("D:/Académico/Master Bioinformatica 2022_2023/TFM/memoria/TFM analysis/dds_HERVs_filtered.rds")
+
+##DEH
+HERVs_DE_all <- readRDS("D:/Académico/Master Bioinformatica 2022_2023/TFM/endovirusMuestrasSantiago/results_20240527/DE analysis/HERVs_DE_19_mincounts10_9samples_p005_FC1.5.rds")
+
+##matriz recuentos genes
+ddsSalmon_GC <- readRDS("D:/Académico/Master Bioinformatica 2022_2023/TFM/memoria/TFM analysis/dds_DEG_filtered_GC.rds")
+
+#DEG
+DEG_uni_GC <- readRDS("D:/Académico/Master Bioinformatica 2022_2023/TFM/memoria/TFM analysis/DEG_uni_GC.rds")
+
+
+##matriz coexpresión
+Genes_HERVs_mcounts_vst_t_filtered <- readRDS("D:/Académico/Master Bioinformatica 2022_2023/TFM/endovirusMuestrasSantiago/results_20240527/DE analysis/Genes_HERVs_mcounts_vst_t_filtered_lowvar07_mincount9_20240611.rds")
+
+modulesTFM <- readRDS("D:/Académico/Master Bioinformatica 2022_2023/TFM/memoria/TFM analysis/modules_n19_20240715.rds")
+
+
+#Tablas
+##análisis descriptivo bowtie
+Tabla_bowtie2 <- read_excel("tabs/Bowtie_quality_group_stats.xlsx")
+
+##análisis descriptivo Telescope
+Tabla_telescope <- read_excel("TFM analysis/Tablas.xlsx", sheet = "Tab_Telescope_median")
+
+##análisis descriptivo Telescope
+Tab_Sup1 <- read_excel("TFM analysis/Tablas.xlsx", sheet = "TabSup1")
+
+##tabla suplementaria DEH
+Tab_DEH_COVID_n19_univariate <- 
+  read.table("TFM analysis/HERVs_COVID__n19_univariate.csv",
+             header = TRUE,
+             row.names=1,
+             dec = ",",
+             sep=";")
+
+## tabla DEG
+DEG_uni_ann_GC <-
+  read.table("TFM analysis/DEG_COVID_n19_univariate_GC.csv",
+             header = TRUE,
+             row.names=1,
+             dec = ",",
+             sep=";")
+
+
+
+TE_type_HERVs_DEH_up <-
+  read.table("TFM analysis/TE_type_HERVs_DEH_up.csv",
+             header = TRUE,
+             row.names=1,
+             dec = ",",
+             sep=";")
+
+
+## tabla análisis de enriquecimiento funcional
+enrichment_mod3_KEGG_REACT_all <-
+  read.table("TFM analysis/enrichment_mod3complete_KEGG_REACT.csv",
+             header = TRUE,
+             #row.names=1,
+             dec = ",",
+             sep=";")
+```
+
+
+```{r, echo=FALSE}
+mod1_n <- length(modulesTFM$modules$`1`)
+mod3_n <- length(modulesTFM$modules$`3`)
+mod1_DEG <- sum(rownames(DEG_uni_GC) %in% modulesTFM$modules$`1`)
+mod1_DET <- sum(rownames(HERVs_DE_all) %in% modulesTFM$modules$`1`)
+mod3_DEG <- sum(rownames(DEG_uni_GC) %in% modulesTFM$modules$`3`)
+mod3_DET <- sum(rownames(HERVs_DE_all) %in% modulesTFM$modules$`3`)
+```
+
+# Resumen
+
+
+**Introducción.** La enfermedad del coronavirus 19 (COVID-19) ha provocado más 7 millones de muertes por todo el mundo. Las manifestaciones clínicas de la COVID-19 pueden ser heterogéneas,
+incluyendo desde síntomas leves como fiebre, hasta graves como neumonía o el síndrome de dificultad respiratoria aguda (SDRA). Está causada por el coronavirus 2 del síndrome respiratorio agudo grave (SARS-CoV-2), el cual es capaz de modificar la regulación de la expresión génica de las células infectadas. Este trabajo pretende evaluar si la COVID-19 induce cambios en los perfiles de expresión de retrovirus endógenos humano (HERVs), que puedan estar relacionados con alteraciones en la regulación de la respuesta inflamatoria  la cual está relacionada a la patología de la enfermedad.
+
+
+**Objetivo.** El objetivo principal de este trabajo es identificar posibles mecanismos moleculares implicados en la severidad de la COVID-19, lo cuales podrían estar correlacionados con el retrotranscriptoma de pulmón y la expresión de HERVs en pacientes graves de COVID-19 fallecidos por neumonía.
+
+**Materiales y métodos:** La metodología propuesta para este trabajo se divide en las siguientes etapas: (1) secuenciación de RNA de muestras de pulmón de `r ncol(dds_prefil_all)` pacientes graves de COVID-19 y pulmones sanos, (2) filtrado de lecturas y análisis de calidad de las secuencias, (3A) cuantificación del retrotransciptoma, alineando con `Bowtie2` y cuantificando posteriormente con el programa `Telescope`, (3B) cuantificación del transcriptoma de las muestras, empleando el programa `Salmon`, (4) análisis de expresión diferencial de HERVs, LINE-1 y genes, (5) integración de los datos ómicos con la creación de una red de coexpresión entre el transcriptoma y retrotranscriptoma identificado y (6) un análisis funcional de enriquecimiento usando bases de datos como KEGG y Reactome para facilitar la interpretación del análisis. Para ello, se han empleando herramientas bioinformáticas como la plataforma `R`, y `SAMTools`.
+
+
+**Resultados.** Se hallaron `r nrow(HERVs_DE_all)` HERVs y LINE-1 y `r nrow(DEG_uni_ann_GC)` genes diferencialmente expresados en muestras de pulmón de pacientes graves de COVID con respecto a muestras de pulmón del grupo control, destacando la sobreexpresión de HERV-K y HERV-W. Por otro lado, se hallaron 376 genes sobreexpresados y relacionados con rutas biológicas implicadas en modificaciones de la cromatina, como la metilación del DNA; así como genes implicados en la respuesta celular a estímulos. Finalmente, se estudió si la expresiones de los elementos genómicos estudiados, elementos retrotransponibles y genes, estaban reguladas de forma conjunta en pacientes graves de COVID-19, identificando un conjunto de `r mod3_n` elementos genómicos, `r mod3_DEG` genes y `r mod3_DET` ERs que estaban muy correlacionados y se relacionaban con rutas metabólicas asociadas a la respuesta inmunitaria.
+
+**Conclusiones.** Los pacientes graves de COVID-19 con neumonía muestran un aumento en las expresiones de HERVs. Así mismo, estos pacientes muestran aumentada la expresión de genes relacionados con la remodelación y modificación de la cromatina, cambios moleculares que modifican la conformación del material genético y favoren la transcripción de regiones genómicas que suelen estar inactivas, como las secuencias de HERVs. Además, se identificaron grupos de HERVs y genes que se coexpresan en pacientes graves de COVID-19. Estos cambios están relacionados con alteraciones en la que contribuir a la respuesta inmunitaria exhacerbada de pacientes con COVID severo por el poder antigénico que  tienen las proteínas que codifican estas secuencias. 
+
+
+**Pablabras clave:** COVID-19, retrovirus endógenos humanos, inflamación, *RNA-seq*
+
+
+\newpage
+
+# Introducción, antecedentes y objetivos
+
+## Introducción
+
+Desde que se detectó el primer caso de la enfermedad del coronavirus 19 (COVID-19) en diciembre de 2019, la enfermedad se ha extendido por todo el mundo, provocando una pandemia que en 4 años ha acumulado más de 770 millones de casos de COVID confirmados (14 millones de personas infectadas en España) y más de 7 millones de muertes por todo el mundo (122 mil muertes en España), según datos de la Organización Mundial de la Salud (OMS) [@covid19cases_2024]. Variables como la rápida tasa de mutaciones en el virus y la existencia de pacientes asintomáticos con capacidad de transmitir el virus, han influido en la rápida propagación de la enfermedad.
+
+En la fase aguda de la COVID-19, las manifestaciones clínicas de la COVID-19 pueden ser heterogéneas, incluyendo principalmente fiebre y síntomas respiratorios que varían desde síntomas leves como tos seca, dolor de garganta y disnea, hasta síntomas más graves como neumonía o el síndrome de dificultad respiratoria aguda (SDRA); llegando a provocar incluso la muerte [@huang2020clinical]. Sin embargo, el virus ha sido detectado en otros tejidos, como corazón, hígado, riñones, cerebro y muestras de sangre [@puelles2020multiorgan]; y se han descrito afectaciones multisistémicas [@synowiec2021severe] incluyendo complicaciones cardiovasculares, como miocarditis y pericarditis [@fairweather2023covid]; neurológicas [@harapan2021neurological]; gastrointestinales, como diarrea, náuseas y dolor abdominal [@shih2023covid]; dermatológicas, como erupciones cutáneas; e insuficiencia renal aguda [@zaborska2024most]. 
+
+Después de la fase aguda de la enfermedad, los síntomas suelen durar aproximadamente 5 días en la población general, aunque este número es muy variable [@sudre2021attributes]. Sin embargo, existen grupos de pacientes en los que los síntomas se prolongan durante semanas o incluso meses, después de la fase aguda, lo que se conoce como “Long COVID” o COVID persistente [@post_covid_condition_2024]. Existen diversas hipótesis sobre los mecanismos implicados en el desarrollo del long, que incluyen la desregulación del sistema inmune, procesos de autoinmunidad, alteraciones en la coagulación y alteraciones del endotelio y alteraciones en la señalización neurológica [@davis2023long]. 
+
+
+Por otro lado, en pacientes infectados por el virus SARS-CoV-2 se han encontrado aumentados los niveles de HERVs y proteínas de HERVs, las cuales tienen la capacidad de impactar en la respuesta inmunitaria, incrementando el entorno inflamatorio, así como la producción de citocinas proinflamatorias y el daño tisular. Como consecuencia, esta modulación se asocia con un pronóstico clínico desfavorable."
+
+
+
+## Antecedentes
+
+### Infección por el coronavirus 2 del síndrome respiratorio agudo grave (SARS-CoV-2) y la enfermedad del coronavirus 19 (COVID-19)
+
+La enfermedad del coronavirus 19 (COVID-19) es una enfermedad infecciosa causada por el coronavirus 2 del síndrome respiratorio agudo grave (SARS-CoV-2) que provocó una pandemia en el año 2020 [@who2020director, @zhu2020novel]. El SARS-CoV-2 es un virus encapsulado perteneciente a la familia *Coronaviridae* con un genoma de ácido ribonucléico (ARN) de sentido positivo y cadena sencilla, con una longitud aproximada de 29.9 kb, capaz de infectar a humanos y otros mamíferos [@huang2020clinical]. El virus se transmite por vía respiratoria, principalmente a través de gotículas respiratorias y aerosoles [@synowiec2021severe].  
+
+La replicación del SARS-CoV-2 está mediada por una ARN polimerasa dependiente de ARN (RdRP), la cual se encarga de replicar su genoma y transcribir ARN subgenómico; y la enzima exorribonucleasa N-terminal (ExoN), encargada de corregir los errores cometidos durante el proceso. La acción conjunta de ambas enzimas, junto con la transcripción discontínua típica en los coronavirus, favorecen un alto ratio de recombinaciones,  inserciones, deleciones y mutaciones puntuales facilitando la aparición de variantes genéticas [@carabelli2023sars] con diferentes propiedades de transmisibilidad y antigenicidad. 
+
+Estudios previos sugieren que el virus SARS-COV-2 podría modificar la regulación de la expresión génica de las células infectadas [@emmanuelle_bignon__2022], a través de modificaciones epigenéticas como alteraciones en la metilación del ADN, alteraciones de las histonas y remodelamiento de la cromatina de estas células [@ruoyu_wang__2023, @kee2022sars].
+
+
+### La respuesta inmunitaria frente a la infección por SARS-CoV-2
+
+El sistema inmunológico es una compleja red de células y moléculas que trabajan de forma coordinada para defender al huésped frente a patógenos o moléculas reconocidas como extrañas. Principalmente, se distinguen dos tipos de mecanismos inmunológicos: la inmunidad innata, primer mecanismo de defensa activado, que se caracteriza por ser una respuesta rápida e inespecífica; y la inmunidad adaptativa, caracterizada por su acción específica. En la inmunidad innata participan principalmente los macrófagos, neutrófilos, células dendríticas y células natural killer (NK); células que reconocen patrones moleculares asociados a patógenos (PAMPs) a través de receptores de reconocimiento de patrones (PRRs) y secretan moléculas como citoquinas pro-inflamatorias (interferones [IFN] de tipo I, interleucina 6 [IL-6] o IL-1$\beta$) para detener la progresión de la infección viral y para la activación de otras células del sistema inmunitario. 
+
+Tras la infección por SARS-COV-2, los PRRs reconocen PAMPs propios del virus que inducen una cascada de procesos celulares, incluyendo activación de genes relacionados con la inmunidad innata, inducción de muerte celular mediada por células inmunitarias y al producción de citoquinas inflamatorias (IL-6, IL-1$\beta$, TNF-$\alpha$) y quimiocinas  [@diamond2022innate]. En ocasiones, la producción de citoquinas se intensifica creando mayor nivel inflamación y daño tisular, estado que recibe el nombre de "tormenta de citocinas" [@karki2022innate]. En este sentido, aquellos pacientes de COVID-19 con síntomas graves con frecuencia mostraron una respuesta inmune innata disminuida o retrasada, con alteraciones en la expresión génica de los interferones tipo I; y una producción elevada de citoquinas pro-inflamatorias, como la IL-6 [@minkoff2023innate].
+
+
+
+### Retrovirus endógenos humanos (HERVs)
+
+El genoma humano presenta aproximadamente un 45% de elementos retrotransponibles (ER), un tipo de material genético que puede moverse dentro de un genoma. Los ERs tienen la capacidad de provocar mutaciones genéticas e influir en la expresión genética debido a su capacidad de replicarse e insertarse en diferentes partes del genoma [@international2001initial].  En base al mecanismo de transposición, los ERs se pueden clasificar en dos grandes tipos (figura \ref{fig:TE_scheme}):  
+
+- **Transposones de ADN**: elementos que se mueven directamente como segmentos de ADN de una parte del genoma a otra (transposición conservativa) sin intermediarios de ARN [@international2001initial].  
+
+- **Retrotransposones**: son elementos genómicos que se transponen a través de un intermediario de ARN (transposición replicativa), el cual es retrotranscrito de nuevo a ADN antes de ser insertado en una nueva ubicación del genoma. Constituyen el 42% del genoma humano y se pueden subdividir en dos subtipos principales según la presencia o no de repeticiones directas terminales largas (LTR, Long Terminal Repeat) flanqueando la región interna codificante: 
+
+  - **Retrotransposones con LTR**. Estos elementos tienen secuencias repetitivas largas en sus extremos y constituyen el 8,3% del genoma humano [@international2001initial]. Dentro de este grupo se encuentran los retrovirus endógenos humanos (HERVs), secuencias virales integradas en el genoma humano. 
+
+  - **Retrotransposones no LTR**, que a su vez se dividen en elementos nucleares largos intercalados (LINEs), elementos largos y autónomos que contienen las enzimas necesarias para su propia transposición, destacando el elemento LINE-1; y elementos cortos nucleares intercalados (SINEs), los cuales dependen de las enzimas producidas por los LINEs para su transcirpción [@international2001initial]. 
+
+```{r TE_scheme, eval=TRUE, fig.cap="\\label{fig:TE_scheme} Clases y ejemplos de los principales elementos retrotransponibles (TEs). TIR: repeticiones invertidas terminales; LTR, repeticiones directas terminales largas (Long Terminal Repeat); Gag, antígeno de grupo; Prt, proteasa; Pol, polimerasa; Env, envoltura; UTR, región no traducida (untranslated region); ORF, marco de lectura abierto (open reading frame); HR, repetición de hexámero; VNTR, repeticiones en tándem de número variable (variable number tandem repeats); SINE-R, monómero derecho de Alu; SVA, compuesto SINE-R/VNTR/Alu; L, monómero izquierdo; R, monómero derecho. (Ukadike et al. 2021)", out.height="30%", echo=FALSE, fig.align = 'center'}
+
+knitr::include_graphics(path="figs/jcm-10-00856-g001.png")
+```
+
+
+Los retrovirus (de la familia de virus *Retroviridae*) son una familia de virus que tienen la capacidad de convertir su ARN viral en ADN complementario (ADNc) por la presencia de la enzima transcriptasa inversa. Durante el proceso de infección, una enzima denominada integrasa facilita la inserción del ADN viral en el ADN de la célula huésped. Los retrovirus endógenos (Endogenous retroviruses, ERVs) son secuencias virales que derivan de infecciones de retrovirus ancestrales que se integraron en el genoma germinal y se han transmitido verticalmente a través de generaciones, pasando a formar parte de nuestro genoma. En este subgrupo encontramos los retrovirus endógenos humanos (HERVs), los cuales han sido relacionados por múltiples estudios con diversas enfermedades [@jansz2021endogenous, @nali2022human] y alteraciones en la expresión génica [@carter2022mosaic]. Éstos se pueden clasificar en clases en función a la homología de secuencia de los elementos con retrovirus exógenos conocidos; la estructura y organización genómica dentro del genoma humano, incluyendo la presencia de genes típicos de retrovirus como *gag*, *pol* y *env*; y por sus características funcionales, como la capacidad para producir proteínas virales, la expresión de ARN mensajero y la potencial capacidad para formar partículas virales. De forma específica, destacan dos clases de HERVs: 
+
+- **HERVs Clase I**. Esta clase incluye HERVs que comparten similitudes estructurales y funcionales con retrovirus gamma, como los gammaretrovirus. Contienen en su estructura genómica los genes víricos *gag*, *pol* y *env.* Además, poseen la capacidad de producir partículas virales. Dentro de esta clase encontramos la familia HERV-H, una de las familias más abundantes de HERVs que parecen estar implicados en la regulación de la expresión génica durante el desarrollo embrionario [@carter2022mosaic]. 
+
+- **HERVs Clase II**. Similares en estructura y organización a los retrovirus beta (como los betaretrovirus), incluyendo en su estructura genómica los genes víricos *gag*, *pol* y *env.* Algunos integrantes de la familia pueden expresar y formar elementos virales, como la familia HERV-K (HMKL-2), una de las familias más estudiadas y activas de HERVs en el genoma humano. Estos elementos han sido asociados con diversas enfermedades y condiciones, incluyendo ciertos tipos de cáncer, como cáncer de mama o pulmón; y enfermedades autoinmunes [@dervan2021ancient]. Otra familia importante es la HERV-W, cuya expresión también ha sido relacionada con enfermedades como la esclerosis múltiple y otras enfermedades autoinmunes [@nali2022human]. 
+
+- **Clase III**. Esta clase incluye HERVs que comparten similitudes con los spumavirus, que son un tipo especial de retrovirus. Un ejemplo es HERV-L, la familia más antigua de HERVs en el genoma humano con menor actividad biológica que otras familias de HERVs. 
+
+
+La infección de algunos virus, como el virus de la influenza A [@liu2022influenza] y SARS-CoV-2 [@petrone2023expression], pueden activar la transcripción de HERVs, y los productos resultantes de su transcripción (ADN, ARN y proteínas) pueden ser reconocidos por PRRs, induciendo así una respuesta immunológica [@duperray2015inflammatory] que contribuye al estado de inflamación generado por la infección original. 
+
+
+La expresión génica está modulada a nivel transcripcional por la unión de factores de transcripción a regiones del ADN próximas al gen en cuestión (regiones promotoras, enhancers (potenciadores) o silencers (silenciadores)); y por modificaciones de la cromatina. Además, también destaca la regulación epigenética, un mecanismo de regulación que participa en la modulación de los genes, sin modificar la secuencia de ADN ni ARN. Los mecanismos epigenéticos más destacados son la metilación del ADN, particularmente en las islas CpG; y modificación de las  proteínas que participan en la condensación del ADN (histonas), como metilación y acetilación de histonas [@smith2013dna]. Cambios epigenéticos impactan en la conformación del ADN y han sido relacionados con numerosas patología y enfermedades autoinmunes [@allis2016molecular]. 
+
+
+
+La hipótesis de este trabajo es que la expresión de HERVs aumenta la respuesta inflamatoria y contribuye a la severidad de los síntomas en los pacientes graves con neumonía asociada a COVID. 
+
+
+ 
+## Objetivos
+
+El objetivo principal de este trabajo es identificar mecanismos moleculares implicados en la severidad de la COVID-19. Para ello, se han abordado los siguientes objetivos específicos:
+
+  - Caracterización de la expresión diferencial del retrotranscriptoma de pulmón de pacientes graves de COVID-19 fallecidos por neumonía frente a controles sanos. 
+
+  - Identificación de cambios en el transcriptoma de muestras de pulmón de pacientes graves de COVID-19 fallecidos por neumonía  frente a controles sanos.
+  
+  - Análisis de la correlación entre los cambios en el retrotranscriptoma con los cambios en el transcriptoma de pacientes graves de COVID-19 fallecidos por neumonía.
+
+
+
+
+# Materiales y Métodos
+
+En esta sección se detallan los materiales y métodos empleados para la realización del trabajo.
+
+
+## Materiales
+
+### Muestras analizadas
+
+Se analizó el transcriptoma y el retrotranscriptoma de un total de `r ncol(matrixcount_complete)` muestras humanas de pulmón. Las muestras de pacientes con COVID-19 (n=`r sum(patients_data_all_cov_RIN$condition=="COVID")`) se obtuvieron de biopsias postmortem realizadas a pacientes graves que habían fallecido a causa de una neumonía aguda asociada a COVID-19. Por otro lado, las muestras del grupo control (n=`r sum(patients_data_all_cov_RIN$condition=="Control")`) se obtuvieron de biopsias del pulmón sano de pacientes vivos con cáncer en el otro pulmón.
+
+
+### Tecnologías empleadas
+
+#### Herramientas de soporte y lenguajes de programación
+
+
+##### GitHub
+
+GitHub es una plataforma que permite crear repositorios en los que poder almacenar y compartir archivos con otros usuarios. Además, este repositorio implementa un sistema de control de versiones que permite realizar un seguimiento de los cambios aplicados en los archivos.
+
+Todos los scripts empleados para la realización de este trabajo se encuentran disponibles en un repositorio de [GitHub](https://github.com/AzaharaGS/TFM_HERVs_COVID): https://github.com/AzaharaGS/TFM_HERVs_COVID
+
+
+##### R version 4.4.0
+
+[R](https://www.r-project.org/about.html) es un lenguaje y un entorno de software libre para la manipulación de datos, realización de análisis estadísticos y representación de gráficos [@team2013r]. Esta herramienta puede amplificar sus funciones con el uso de extensiones denominadas librerías (`packages`), que están disponibles en el repositorio [CRAN](https://cran.r-project.org/) (ComprehensiveR Archive Network), gestionado por la comunidad de R; y en [Bioconductor](https://www.bioconductor.org/), (3.19), un proyecto de desarrollo de software de libre acceso que utiliza el lenguaje de R y proporciona herramientas análisis de datos biológicos, y especiamente, el análisis de datos genómicos [@huber2015orchestrating].
+
+Para la realización de este proyecto, se empleó la versión 4.4.0 de R, a través de la interfaz [RStudio](https://posit.co/download/rstudio-desktop/) (2024.04.1+748) [@rstudio2016rstudio].
+
+A continuación, se listan las librerías paquetes empleadas en este trabajo:
+
+- **knitr 1.47** Esta librerías contiene múltiples herramientas que permiten generar informes en R [@xie2017dynamic]. En este trabajo se ha empleado este paquete para crear el informe de la memoria.
+
+- **dplyr 1.1.4 **. Se trata de una librerías que proporciona un lenguaje propio para manipular bases de datos [@dplyrref].
+
+- **readr 2.1.5** y **readxl 1.4.3**. Son librerías que permiten leer o importar bases de datos en formato rectangular, como `.csv` y `.tsv`; y en archivos excel (`.xls` y `.xlsx`), respectivamente.  
+
+- **writexl 1.5.0**. Es una librería que permite la escrituta de archivos en formato `.xls` y `.xlsx`.
+
+- **gtsummary 1.7.2**: librería que proporciona una manera de resumir tablas comparativas o descriptivas en formato de publicación, sin necesidad de utilizar otros programa para procesarlas. 
+
+- **ggplot2 3.5.1** La librería `ggplot2` consiste en un sistema para crear gráficos de forma declarativa, es decir, indicando qué se desea visualizar en el gráfico haciendo uso de una gramática de gráficos. Ha sido empleado en este trabajo para graficar la distribución de las familias de HERVs identificadas en las muestras de pacientes con COVID-19.
+
+- **patchwork 1.2.0**. Esta librería es una extensión del paquete ggplot que facilita la combinación de gráficos en una sola figura. En este trabajo fue empleado para crear las figuras compuestas incluidas.
+
+- **TxDb.Hsapiens.UCSC.hg38.knownGene 3.18.0**. Esta librerías contiene bases de datos de anotaciones generadas por UCSC y se ha empleado para crear objetos TxDd y agrupar los transcriptos cuantificados a nivel de genes. 
+
+- **org.Hs.eg.db 3.19.1**. Esta librerías contiene una amplia anotación del genoma humano basada en alineamientos usando identificadores de genes Entrez.
+
+- **Tximport v1.32.0.** La librería `tximport` ayuda a integrar estimaciones de abundancias a nivel de tránscritos y convertirlas en matrices de recuentos que podrán ser utilizadas para análisis posteriores usando paquetes estadísticos como `DESeq2` [@soneson2015differential]. El proceso se realiza en dos etapas: **(1)** asociar los tránscritos con los IDs de genes, e **(2)** importar los datos desde los ficheros que contienen las estimaciones a nivel de tráncrito. Esta herramienta se ha empleado para integrar los recuentos de tránscritos a nivel de genes antes de realizar los análisis posteriores. 
+    
+- **DESeq2 v1.44.0**. `DESeq2` es una librería de R que proporciona un método de análisis de expresión diferencial de datos de *RNA-seq* [@love2014moderated]. El archivo de entrada debe ser una matriz de recuentos en crudo de *RNA-seq*, recomendando emplear con recuentos a nivel de gen para obtener resultados más precisos y robustos [@soneson2015differential]. Para el análisis de expresión diferencial, el programa aplica modelos de regresión binomial negativa (distribución típica en datos de conteo) a la matriz de recuentos, dónde cada fila representa un gen y cada columna representa una muestra; y normaliza los recuentos aplicando un factor de normalización (`size factors`). 
+    Para el análisis de la expresión diferencial, `DESeq2` permite el uso de dos tipos de test: Likelyhood Ratio Test (LRT) y el test de Wald. En este trabajo, se aplicó el test de Wald, un test paramétrico que genera p-valores específicos para cada gen, y ajusta estos valores por múltiples comparaciones empleando la tasa de descubrimiento falso (False Discovery Rate, FDR) [Benjamini y Hockberg, 1995].  Por último, el programa genera una tabla con los coeficientes y la magnitud del cambio en la expresión del gen (_Fold Change_) en Log2 (LFC) entre la población a estudio y el control.
+
+
+- **EnhancedVolcano 1.22.0**. Librería que representa gráficos de volcán dónde aparecen representados todos los genes analizados en el análisis de expresión diferencial. Además, permite señalar los grupos de genes que cumplen ciertos criterios de valores de Fold Change y valores de p. Se ha empleado esta librería para representar los resultados de los análisis de expresión diferencial.
+
+- **gprofiler2** [@gprofiler2]. Se trata de una herramienta que permite realizar análisis funcionales de enriquecimiento y la visualización de los mismos en el entorno de R conectando con la herramienta web 'g:Profiler' (<https://biit.cs.ut.ee/gprofiler/>). En este trabajo se ha empleado para facilitar la interpretabilidad de los genes diferencialmente expresados. 
+
+
+
+- **GWENA v1.14.0**. Esta libería permite crear redes de coexpresión y realizar una caracterización completa de los nódulos identificados en dicha red, incluyendo un análisis de enriquecimiento, estudios de asociaciones fenotípicas, identificación de genes hub y análisis de coexpresión diferencial. En este trabajo, hemos utilizado este paquete para realizar crear una red de coexpresión entre los valores de expresión de los elementos retrotransponibles y los genes analizados. 
+
+- **circlize 0.4.16** [@gu2014circlize]. Esta librería permite crear figuras circulares para visualizar grandes cantidades de información genómica, permitiendo crear gráficos *circle* para la representación de genomas completos. En este trabajo, se ha empleado para crear un gráfico circular representando las localizaciones de los elementos genómicos diferencialmente expresados entre los dos grupos de estudio.
+
+
+
+- **biomaRt 2.60.0**. biomaR incluye funciones y métodos para la manipulación, visualización y análisis de datos de datos ómicos. En este trabajo se ha empleado para obtener las posiciones de los genes estudiados [@durinck2005biomart].
+
+
+
+
+
+Además de las librerías indicadas, se ha empleado la herramienta `R Markdown` [@allaire2023rmarkdown], una función de RStudio que permite integrar texto con código de R u otros lenguajes de programación como `bash`. En este trabajo se ha empleado para la realización de los análisis y la creación de la presente memoria.  
+
+
+#### FasQC v0.12.1
+
+FasQC es un programa que permite realizar un análisis de calidad en datos crudos de secuenciación de alto rendimiento. Los análisis por secuencia incluidos son: **(a)** calidad de la secuencia por base en cada posición; **(b)** puntuaciones de calidad; **(c)** contenido de cada base (A,G,T,C), mostrando la proporción de cada base en cada posición del archivo; **(d)** contenido GC, comparando el contenido en la muestra frente a la distribución teótica, **(e)** contenido de bases desconocidas (N); **(f)** distribución de la longitud de las secuencias; **(g)** porcentaje de secuencias duplicadas; **(h)** contenido de secuencias sobrerrepresentadas, **(i)** contenido de secuencias de adaptadores; y **(j)** análisis de calidad de secuencia por mosaico, que muestra la desviación del promedio de la calidad en cada posición de la lectura, mostrando en colores fríos aquellas posiciones donde la calidad es igual o superior al promedio, mientras que los colores cálidos indican calidades peores. Este programa se empleó para analizar la calidad de las secuencias crudas de ARN.
+
+#### QualiMamp 2.2.2
+
+QualiMap es un programa que permite realizar control de calidad de los datos de secuenciación alineados [@okonechnikov2016qualimap]. En este trabajo se ha utilizado para realizar el control de calidad del alineamiento con `Bowtie2`.
+
+#### MultiQC 1.23
+
+MultiQC es una herramienta bioinformática que permite agregar informes de resultados de varias muestras a partir de un sólo informe [@ewels2016multiqc]. En este trabajo, se ha empleado para integrar los resultados obtenidos trás realizar el análisis de la calidad de las secuencias crudas de ARN y las secuencias alineadas.
+
+
+#### Telescope v1.0.3
+
+Telescope es un programa, escrito en lenguaje de programación Python, que proporciona estimaciones de la expresión de elementos retrotransponibles (ER)  en localizaciones genómicas específicas [@bendall2019telescope]. Para ello, emplea un modelo Bayesiano mixto que permite reasignar los fragmentos mapeados de forma ambigua al transcrito más probable, asumiendo que el número de fragmentos generados por un transcrito es proporcional a la cantidad de transcrito presente en la muestra. 
+
+Para cuantificar los HERVs presentes en secuencias obtenidas por secuenciación de ARN (*RNA-seq*), el programa requiere la entrada de dos archivos:
+
+  - Un archivo con el alineamiento de las lecturas a un genoma de referencia, en formato BAM/SAM y ordenado por nombre de lectura. El alineador empleado para obtener este archivo debe permitir realizar una búsqueda de alineamiento local sensible y reportar múltiples alineamientos válidos por cada fragmento mapeado.   
+
+  - Un fichero de anotaciones de TE, en formato GTF, que incluya las regiones genómicas que representan a los tránscritos de TE. 
+
+Tras su ejecución, Telescope genera dos archivos de salida: un archivo que contiene los recuentos de HERVs estimados (`telescope-TE_counts.tsv`) y un archivo que contiene el informe estadísitico del proceso (`telescope-stats_report.tsv`). Para este trabajo, se creó un script de bash para procesar todos los ficheros que contenían los estadísticos del proceso (`extracting_telescope_stats_v02.sh`).
+
+
+#### Bowtie2 v2.5.3
+
+Bowtie2 es un programa que permite alinear lecturas de secuenciación frente a un genoma de referencia [@langmead2012fast]. Se recomienda su uso especialmente para alinear secuencias de longitud comprendida entre 50 o 1000 caracteres, y para alinear genomas relativamente grandes como los genomas de mamíferos. 
+
+El programa funciona por defecto en el modo de alineamiento _end-to-end_, en el cual debe alinearse la lectura completa. Sin embargo, para este trabajo se ha empleado el modo de alineamiento _local_, en el cual no participan algunos carácteres del final de la lectura mapeada.
+
+Bowtie2 requiere dos ficheros de entrada para su correcto funcionamiento:
+
+  - Un fichero que contenga un índice del genoma de referencia generado por el propio programa.
+
+  - Un fichero de lecturas de secuenciación, en formato FASTQ.
+
+El archivo que resulta del alineamiento con Bowtie2 es un archivo SAM, dónde cada línea describe un alineamiento, o una lectura si el alineamiento de dicha lectura ha fallado.
+
+
+#### Salmon v1.10.2
+
+Salmon es un pseudo-alineador que permite cuantificar directamente las abundancias de los tránscritos de las lecturas crudas de *RNA-seq* mediante un método de mapeo denominado *quasi-mapping* [@patro2017salmon]. El método *quasi-mapping* consiste en un procedimiento de inferencia combinado con un modelo de sesgo, que consta de dos fases: 
+
+  1. Fase de creación del índice a partir del transcriptoma de referencia, para determinar la información de posición y orientación sobre dónde se mapean mejor los fragmentos. En esta fase se requiere un fichero, en formato FASTA, que contenga el transcriptoma de referencia. 
+
+  
+  2. Fase de cuantificación, en la que los niveles de expresión, estimados inicialmente en los archivos crudos de *RNA-seq*, se refinan empleando la información del índice. Para ello, se necesita un fichero que contenga un índice del genoma de referencia generado por el propio programa; y los ficheros que contengan las lecturas de secuenciación, en formato FASTAQ. 
+
+
+Al finalizar, Salmon reporta un archivo de cuantificación denominado *quant.sf*, en el que hay tantas filas como tránscritos cuantificados, y 5 columnas que indican el nombre del tránscrito incluido en el transcriptoma de referencia, la longitud del tránscrito de referencia en nucleótidos, la longitud *efectiva* calculada del tránscrito de referencia, teniendo en cuenta todos los factores que pueden influir en la probabilidad de mapear estos fragmentos de transcripción, como el sesgo específico de secuencia y los fragmentos GC, la estimación de las abundancias relativas de los tránscritos en unidades de Tránscritos Por Millón (TPM) y el número de lecturas mapeadas para cada tránscrito que ha sido cuantificado.    
+
+
+
+
+
+#### Fuentes de datos externas
+
+En este apartado se incluyen las fuentes de datos externas que se han empleado para la realización de este trabajo:
+
+- **Gene Ontology (GO)** [@ashburner2000gene]. Se trata de una ontología que contiene términos para anotación de genes y proteínas. Los términos están agrupados en tres ontologías independientes: procesos biológicos (BP), funciones moleculares (MF) y componentes celulares (CC). Esta ontología ha sido empleada para analizar las funciones de los elementos genómicos estudiados.
+
+
+- **Human Phenotype Ontology (HPO)** [@kohler2014human]. Esta ontología también ofrece anotaciones de genes y proteínas. Sin embargo, el objetivo de HPO es relacionar fenotipos clínicos con los genes o proteínas identificados.
+
+
+- **Kyoto Encyclopedia of Genes and Genomes (KEGG)** . Se trata de una colección de bases de datos para el análisis sistemático de las funciones de genes [@kanehisa2000kegg]. 
+
+**Reactome**. Base de datos de vías o rutas biológicas, incluyendo la señalización celular, el metabolismo y el ciclo celular, que porporciona información de procesos y reacciones biológicas en diferentes especies. Se ha empleado para realizar un análisis funcional de enriquecimiento,
+
+
+
+
+## Métodos
+
+### Extracción y secuenciación de ARN
+
+Las muestras de pulmón se conservaron en la solución de estabilización RNAlater&reg; (Thermo Fisher Scientific, Waltham, MA USA) y el ARN fue extraido usando el kit Maxwell&reg; RSC simplyRNA Tissue Kit (Promega, Madison, WI, USA), según las instrucciones del fabricante. La concentración de ARN fue analizada usando el espectrofotómetro NanoDrop-2000 (Thermo Scientific), mientras que el bioanalizador Agilent 2100 (Agilent Technologies) y la electroforesis en gel de agarosa al 1% se emplearon para determinar la integridad y pureza del ARN, respectivamente.
+
+La secuenciación de ARN (*RNA-seq*) fue realizada por la empresa Novogene. De forma resumida, se preparó una biblioteca de ARN de cadena específica después de eliminar el ARN ribosomal. A continuación, todas las muestras fueron secuenciadas en un secuenciador Illumina Novaseq6000 desde ambos extremos (paired-end) y con una longitud de lectura de 150 pares de bases (pb). Por último, los datos crudos de secuenciación se filtraron en base a los siguientes criterios:  (1) se eliminaron lecturas que contuviesen secuencias de adaptadores, (2) se eliminaron lecturas en las que el porcentaje de bases desconocidas (N) fuese mayor del 10%, y (3) se eliminaron lecturas en las que  más del 50% de las bases tuviesen una calidad inferior a 5. 
+
+Finalmente, la calidad de las secuencias en los datos crudos analizados se evaluó empleando el programa FastQC [@andrews2010fastqc].
+
+
+```{r TFM_pipeline, eval=TRUE, fig.cap="\\label{fig:TFM_pipeline} Esquema de la metodología empleada para la caracterización de retrovirus endógenos humanos (HERVs) expresados tras sufrir COVID-19 usando datos de *RNA-seq*. (A) Secuenciación de ARN. (B) Cuantificación del retrotranscriptoma. (C)  Cuantificación del transcriptoma. (D) Análisis de la expresión diferencial de HERVs y genes. (E) Análisis de coexpresión de HERVs y genes expresados diferencialmente en muestras COVID-19. ", out.height="80%", echo=FALSE, fig.align = 'center'}
+
+knitr::include_graphics(path="figs/TFM pipeline.png")
+```
+
+### Cuantificación del retrotranscriptoma: identificación de HERVs
+
+Se identificó y cuantificó la presencia de secuencias de HERVs en lo datos de *RNA-seq* usando el programa Telescope [@bendall2019telescope] (Figura \ref{fig:TFM_pipeline} _B_). Primero se empleó el alineador Bowtie2 [@langmead2012fast] para alinear las lecturas contra el genoma de referencia (hg38), permitiendo un alineamiento local sensible (`--very-sensitive-local`) que reporta hasta 100 alineamientos (`-k 100`) con un umbral mínimo de puntuación de alineación del 95% o más identidad de secuencia (`--score-min L,0,1.6`) por cada par de fragmentos. A continuación, los archivos bam generados se ordenaron por nombre de lectura empleando la herramienta Samtools (`samtools sort -n`).  
+
+A continuación, el programa Telescope v1.0.3 fue empleado para identificar y cuantificar los HERVs usando como archivos de entrada los ficheros bam ordenados junto con un fichero de anotaciones [público](https://github.com/mlbendall/telescope_annotation_db/tree/master/builds/retro.hg38.v1.) que incluía las localizaciones de 14968 HERVs, agrupados en 60 familias de HERVs; y 13545 elementos LINE-1 presuntamente activos. Se emplearon los parámetros del modelo y las opciones de ejecución del modelo definidas por defecto, fijando un límite de 100 iteraciones del algoritmo de maximización de expectativas para estimar los parámetros del modelo Bayesiano usado para la reasignación de alineamientos y posterior identificación de los ERs (`–max_iter 100 –theta_prior 200000`). Finalmente, Telescope generó una tabla con la expresión de los ERs identificados expresados como valores de recuentos, la cual se empleó en posteriores análisis. 
+
+
+
+### Transcriptoma: expresión de genes en *RNA-seq*
+
+Para analizar los niveles de expresión de genes a partir de los datos de *RNA-seq* se empleó el programa Salmon (Figura \ref{fig:TFM_pipeline} _C_) y el método *quasi-mapping* [@patro2017salmon] que permite cuantificar directamente las abundancias de los tránscritos sobre los ficheros de secuenciación. Para ello, primero se construyó el índice a partir del transcriptoma de referencia, ([Homo_sapiens.GRCh38.cdna.all.fa.gz](https://ftp.ensembl.org/pub/release-112/fasta/homo_sapiens/cdna/)); y, a continuación, se cuantificaron los  niveles de expresión de los transcriptos presentes en los datos de secuenciación crudos. Debido a la observación de distribuciones atípicas en el contenido GC de algunas muestras (fig \ref{fig:GC_rawseq}) se aplicó una corrección por contenido GC (`--gcBias`) de las lecturas al realizar la cuantificación del transcriptoma. 
+
+Por último, se empleó la función `tximport()` del paquete de R `tximport` y un fichero de cuantificación SF para obtener la matriz de expresión en valores de recuentos a nivel de genes [@soneson2015differential].  
+
+
+### Análisis de expresión diferencial 
+
+El análisis de expresión diferencial entre muestras de pulmón de pacientes graves de COVID-19 fallecidos por neumonía aguda y muestras de pulmón sano del grupo control se realizó empleando el paquete `DESeq2` (Figura \ref{fig:TFM_pipeline} _D_). Primero, se importaron las matrices de recuentos de la expresión de HERVs y genes empleando las funciones `DESeqDataSetFromMatrix()` y `DESeqDataSetFromTximport()`, respectivamente, e indicando la fórmula del diseño del análisis. A continuación, se filtraron las  secuencias que presentaban recuentos iguales o superiores a 10 en, al menos, 9 muestras (tamaño del grupo COVID-19); y se aplicaron modelos de regresión binomial negativa y el test de significación de Wald para evaluar la expresión diferencial entre las muestras de pacientes con COVID-19 y control, empleando la función `DESeq()`. Por último, se construyó una tabla con los resultados empleando la función `results()`. Se consideraron diferencialmente expresados aquellos HERVs y genes si el valor de la p ajustada era inferior a 0.05 y el LFC en valor absoluto era mayor que 1.5.
+
+
+
+### Análisis de coexpresión
+
+Para analizar la existencia de conjuntos de elementos genómicos (genes y TEs) que se coexpresen en pacientes graves de COVID-19, se creó una red de coexpresión para las expresiones génicas de elementos retrotransponibles y genes empleando el paquete de R `GWENA` [@lemoine2021gwena] (Figura \ref{fig:TFM_pipeline} _E_). Seguidamente, se analizó la estructura de la red de coexpresión obenida y se evaluó si existía correlación entre los grupos de genes altamente correlacionados entre sí y los pacientes graves de COVID-19. Para estos análisis, se decidió coger toda la población en vez de sólo los sujetos con COVID-19 debido al bajo número de pacientes analizados.
+
+Primero, se normalizaron los recuentos génicos utilizando la normalización por transformación estabilizadora de varianza (VST) [@anders2010differential], la cual transforma la matriz de recuentos en una matriz con varianza constante a lo largo del rango de valores medios. A continuación, se filtraron los elementos reteniendo el 70% de los elementos y que además poseían un recuento mayor a 9 en la suma de todos los pacientes. 
+
+Para construir la red se utilizó la correlación de spearman y se permitió un valor de corte de 0.8 para el coeficiente de determinación. La red obtenida consistió en un grafo de grado de escala libre con nodos unidos con distintas intensidades. A continuación, se analizó la existencia de grupos de elementos genómicos que estuvieran relacionados fuertemente entre sí en la red obtenida. Estos grupos son denominados módulos, y su alta correlación sugiere que trabajan de forma conjunta para realizar un conjunto de funciones. Para la identificación de los módulos, se empló el método de clustering jerárquico y aprendizaje no supervisado. 
+
+
+### Análisis funcional de enriquecimiento
+
+Para simplificar la interpretabilidad de los resultados de la red de coexpresión y dar un sentido biológico a la identificación de los módulos de la red de coexpresión asociados con la patología de estudio, se realizó un análisis funcional de enriquecimiento sobre la lista de elementos genómicos incluidos en los módulos de la red. Para ello, se empleó la la función `bio_enrich()` del paquete `GWENA` [@lemoine2021gwena]. 
+
+
+
+# Resultados
+
+Esta sección muestra los resultados obtenidos tras realizar el análisis de la expresión diferencial de genes y retrovirus endógenos humanos (HERVs) en muestras de pulmón de pacientes con neumonía aguda que habían pasado la COVID-19 frente a muestras de pulmón sano.
+
+
+## Calidad de las secuencias
+
+
+Las secuencias obtenidas tras la secuenciación de ARN por pares de extremos de las muestras de pulmón analizadas mostraron un contenido promedio de 137 millones de lecturas. El 93.36% (IQR: 92.93%, 93.77%)  de las lecturas mostró un Q30 (tabla \ref{tab:TabSup1}), lo que indicó alta calidad de secuencia. Sin embargo, se identificó un contenido de bases GC en las secuencias de las muestras de pacientes graves de COVID-19 (43.74 [IQR: 43.67, 44.34]%) significativamente menor que en las secuencias del grupo control (46.13 [IQR: 45.41, 48.04]%) (tabla \ref{tab:TabSup1}), con perfiles que no seguía una distribución normal (Figura \ref{fig:GC_rawseq} **A**). 
+
+
+
+
+
+## Identificación de elementos retrotransponibles después de la infección por SARS-CoV-2
+
+```{r tab_bowtie2, echo=FALSE}
+knitr::kable(Tabla_bowtie2, caption="\\label{tab:tab_bowtie2} Resultados tras el alineamiento de las secuencias con Bowtie2. Las variables continuas están expresadas como mediana (rango intercuartílico)")
+```
+
+Se alinearon un promedio de 115 millones de lecturas por muestra, de las que 115 consiguieron alinearse (88%) (tabla \ref{tab:tab_bowtie2}). Después, se cuantificaron los ERs expresados en las muestras de pulmón empleando el programa `Telescope`. De las 53 268 653 (IQR: 47 121 292, 54 788 983) lecturas alineadas correctamente, se identificaron un promedio de 14,614 (IQR: 13 487, 15 069) secuencias de ERs en las muestras analizadas (Tabla \ref{tab:tab_telescope}). Asimismo, en las secuencias de los pacientes graves de COVID-19 se identificó un número más alto de secuencias de ERs (14 951 [IQR:14 679, 15 262]) que en las del grupo control (13 529 [IQR: 13 024, 14 311]).
+
+
+
+
+
+
+```{r tab_telescope, echo=FALSE}
+knitr::kable(Tabla_telescope, caption="\\label{tab:tab_telescope} Resultados tras la cuantificación de elementos retrotransponibles en las secuencias analizadas usando el programa Telescope. Las variables continuas están expresadas como mediana (rango intercuartílico)")
+```
+
+```{r, echo=FALSE}
+
+n_HERV_DE <- Tab_DEH_COVID_n19_univariate %>% 
+  filter(regulation_COVID=="up" & Class=="HERV") %>% 
+  count()
+
+```
+
+
+Para evaluar la expresión diferencial de HERVs en pacientes graves de COVID-19,  se analizó la expresión diferencial de `r nrow(dds_prefil_all)` elementos retrotransposones en `r ncol(dds_prefil_all)` muestras de pulmón. Se identificaron `r nrow(HERVs_DE_all)` (`r round(nrow(HERVs_DE_all)/nrow(dds_prefil_all)*100,2)`%) HERVs y elementos LINE-1 portencialmente activos diferencialmente expresados (DEH) en muestras de pulmón de pacientes graves de COVID-19 con respecto a muestras de pulmón del grupo control (Figura \ref{fig:HERVs_DET_fig} A); `r n_HERV_DE` HERVs estaban sobreexpresados, el `r round(TE_type_HERVs_DEH_up$perc[TE_type_HERVs_DEH_up$TE_type=="INTERGENIC"]*100,2)` de estos elementos se localiza en regiones intergénicas del genoma (Figura \ref{fig:HERVs_DET_fig} B). La tabla que contiene la lista completa de todos los DEH está disponible en el repositorio. Dicha tabla incluye los valores de expresión media en todas las muestras analizadas, los valores de cambio en el grupo de pacientes con COVID-19 frente al grupo control, los valores de p ajustados, las localizaciones génicas de cada uno y la familia a la que pertenecen.  
+
+```{r HERVs_DET_fig, fig.cap="\\label{fig:HERVs_DET_fig} HERVs y LINE-s diferencialmente expresados (DEH) en muestra de pulmón de pacientes muertos por neumonía aguda tras pasar la COVID-19 (grupo de pacientes COVID-19). (A) Gráfico de volcán que muestra los ERs diferencialmente expresados, sobreexpresados (lado derecho) e infra-expresados (lado izquierdo) en muestras de pulmón del grupo de pacientes COVID-19. Las líneas discontínuas de corte indican un valor de p igual a 0.05 (eje x) y un valor de cambio expresado en log2 (LFC) mayor de 1,5 (eje y). Los ERs sobreexpresados e infraexpresados, con significación estadísitica (p<0.05), se muestran en color verde y rojo, respectivamente. (B) Distribución de los DEH según su posición génica. (C) Distribución de retrovirus endógenos humanos (HERVs) diferencialmente expresados en muestras COVID-19 agrupados en grupos de familias HERVs. Se representa la relación entre las frecuencias de los HERVs diferencialmente expresados en muestras COVID-19 y la frecuencia de familias HERV en la base de datos de anotación inicial. La línea discontínua roja indica la relación esperada, calculada como el cociente entre el número total de HERVs en la base de datos y el número de DEH.", echo=FALSE, eval=TRUE, out.width="100%", fig.align = 'center'}
+
+knitr::include_graphics(path="figs/Figura_HERVs_DEH_up.png")
+
+```
+
+Dentro de los HERVs sobreexpresados, se encontró que los grupos de familias HERV-K y Harlequin estaban sobrerrepresentada en los HERVs  sobreexpresados en muestras de pulmón de pacientes graves de COVID-19 (Figura \ref{fig:HERVs_DET_fig} C). También se observó gran representación de las familias HERV-H,HERV-W y ERV1.
+
+
+
+
+\newpage
+## Cambios en el transcriptoma tras infección por SARS-CoV-2
+
+Tras observar diferencias de expresión en el retrotranscriptoma de muestras de pulmón de pacientes COVID-19, se evaluó si la infección por SARS-CoV-2 también afectaba a la expresión génica. Después de analizarse la expresión de `r nrow(ddsSalmon_GC)` genes, se identificaron `r nrow(DEG_uni_ann_GC)` (`r round(nrow(DEG_uni_ann_GC)/nrow(ddsSalmon_GC)*100,2)`%) genes diferencialmente expresados (DEG) en muestras de pulmón de pacientes graves de COVID-19 frente al grupo control, mostrando `r sum(DEG_uni_ann_GC$log2FoldChange<0)` genes sobreexpresados (Figura \ref{fig:HERVs_DEG_fig} A). Al analizar las principales rutas representadas en estos genes, se identificaron rutas biológicas relacionadas con modificaciones de la cromatina, como la metilación del DNA; así como genes implicados en la respuesta celular a estímulos (Figura \ref{fig:HERVs_DEG_fig} A).
+
+```{r HERVs_DEG_fig, fig.cap="\\label{fig:HERVs_DEG_fig} Resultados del análisis de expresión diferencial del transcriproma de pacientes graves de COVID. (A) Gráfico de volcán que muestra los genes diferencialmente expresados (DEG), sobrerregulados (lado derecho) e infraexpresados (lado izquierdo) en muestra de pulmón de pacientes graves de COVID-19. Las líneas de corte indican un valor de p igual a 0.05 (eje x) y un valor de cambio expresado en log2 (LFC) mayor de 1,5 (eje y). Los genes sobreexpresados e infraexpresados, con significación estadísitica, se muestra en color verde y rojo respectivamente. (B) Principales rutas biológicas (eje Y) sobrerrepresentadas y relacionadas con modificaciones de la cromatina y respuesta inmunitaria, que aparecen en pacientes graves de COVID, y los genes sobrerregulados que contienen (eje X)", echo=FALSE, eval=TRUE, out.width="100%", fig.align = 'center'}
+
+knitr::include_graphics(path="figs/Figura_HERVs_DEG_FE.png")
+
+```
+
+
+\newpage
+## Análisis integrado de la expresión diferencial de elementos retrotransponibles y genes 
+
+Los elementos genómicos (genes y elementos retrotransponibles) diferencialmente expresados en muestras de pulmón de pacientes graves de COVID-19 estaban localizados  en todos los cromosomas del genoma, y en regiones cromosómicas próximas entre sí (Figura \ref{fig:HERVs_DEG_circle}). Resultó llamativo encontrar principalmente sobreexpresión de ERs y genes en el cromosoma 20.
+
+
+
+```{r HERVs_DEG_circle, fig.cap="\\label{fig:HERVs_DEG_circle} Gráfico de circo de los HERVs (DEHs, anillo interno) y genes (DEGs, anillo intermedio) diferenciamente expresados a lo largo del genoma. Los elementos genómicos sobreexpresados en el grupo COVID-19 se muestran en rojo, mientras que los infraexpresados se muestran en azul.", echo=FALSE, eval=TRUE, out.width="100%", fig.align = 'center'}
+
+knitr::include_graphics(path="figs/Figura_Circleplot_HERVs_DEG.png")
+
+```
+
+Para evaluar si la expresiones de los elementos genómicos estudiados, elementos retrotransponibles y genes, estaban reguladas de forma conjunta en pacientes graves de COVID-19, se realizó un análisis de coexpresión. Sin embargo, dado el bajo número de muestras analizadas y para asegurar la libertad de la red creada, se decidió crear una matriz de coexpresión utilizando todas las muestras y evaluar la existencia de grupos de elementos genómicos diferencialmente expresados en pacientes graves de COVID-19 sobre esa matriz. Así, se creó una red con `r ncol(Genes_HERVs_mcounts_vst_t_filtered)` secuencias genómicas, compuesta por `r length(modulesTFM)` grupos de elementos genómicos que estaban relacionados fuertemente entre sí (Figura \ref{fig:Coexpression_net} A). A continuación, se evaluó la correlación de los perfiles de expresión de cada módulo con variables fenotípicas, hallando dos grupos cuyas expresiones estaban correlacionadas significativamente en pacientes graves de COVID-19: módulo 1 (`r mod1_n` elementos genómicos) (Figura \ref{fig:Coexpression_net} B), que  contenía `r mod1_DEG` DEGs y `r mod1_DET` DEHs ;  y módulo 3 (`r mod3_n` elementos genómicos), el cual incluía `r mod3_DEG` DEGs y `r mod3_DET` DEHs. También se observó correlación con el sexo, aunque sin llegar a ser estadísiticamente significativa.
+
+
+Por último, se analizó la participación en rutas biológicas conocidas de los elementos genómicos desregulados en pacientes graves de COVID-19 que presentaban alta correlación   aplicando un análisis funcional de enriquecimiento  Se escogió  el módulo 3 (Figura \ref{fig:Coexpression_net} C) para realizar el análisis funcional de enriquecimiento por su correlación con las expresiones en pacientes graves de COVID-19 y por estar enriquecido en rutas biológicas relacionados con enfermedades infecciosas como la enfermedad del COVID-19, así como rutas propias de la infección por SARS-COV (tabla \ref{tab:Tab_FA_mod3}). Los resultados del análisis de enriquecimiento sobre los elementos diferencialmente expresados fueron limitados, destacando la identificación de la la vía de presentación y procesamiento de antígeno, así como la vía de señalización de estrógenos. Además, el conjunto de elementos génicos también estaba enriquecido en elementos relacionados con la unión a desacetilasa de histonas.
+
+
+
+```{r Coexpression_net, fig.cap="\\label{fig:Coexpression_net} Resultados del análisis de coexpresión de genes y elementos retrotransponibles (TEs) en muestras de pulmón. A) Grupos de elementos genómicos (genes Y TEs) identificados en la red de coexpresión. El módulo 0 contiene los elementos genómicos que no se han podido clasificar en ninguno de los otros módulos. B) Asociación fenotípica entre los 5 grupos de elementos génomicos (módulos) hallados y sexo y pertenecer al grupo COVID-19. C) Gráfico de enriquecimiento tipo Manhattan de los módulos 1 y 3 en las bases GO, KEGG, Reactome, Transfac, miRTarBase, Human Protein Atlas, CORUM, Human Phenotype ontology, WikiPathways. D) Distribución de los genes y ERs diferencialmente expresados incluídos en el módulo 3 agrupados por las rutas halladas en el análisis funcional de enriquecimiento empleando la base de datos KEGG.", echo=FALSE, eval=TRUE, out.width="100%", fig.align = 'center'}
+
+knitr::include_graphics(path="figs/Figura_modulo_Coexpression.png")
+
+```
+
+
+
+# Discusión
+
+Hace cuatro años se identificó el primer caso de COVID-19 en Wuhan (China), y desde entonces, más de 770 millones de personas han sido infectadas por todo el mundo. A pesar de los avances en la investigación de la enfermedad (se han publicado más de 400 000 artículos científicios publicados) y el desarrollo de vacunas [@feikin2022duration], la mortalidad asociada a la COVID-19 continúa siendo significativa. La infección por SARS-CoV-2 induce en algunos pacientes una respuesta inmunitaria exacerbada, caracterizada por una tormenta de citoquinas [@karki2022innate]. Las principales hipótesis relacionadas con los mecanismos subyacentes a esta respuesta desregulada sugieren que existe una desregulación en los genes implicados en la resputes inflamatoria [@wong2022immune]. Sin embargo, de forma paralela, durante la COVID-19, se podrían inducir cambios conformacionales en la cromatina que favorecerían la transcripción de HERVs[@@guo2024identification], los cuales son reconocidos por el sistema inmunitario como antígenos exógenos. Esta reactivación de HERVs podría contribuir a la inflamación sistémica y a la gravedad de la enfermedad en algunos pacientes.
+
+En este trabajo se ha evaluado la existencia de mecanismos moleculares implicados en la severidad de la COVID-19, analizando el impacto de la expresión de HERVs y su relación con el transcriptoma de pulmón de pacientes graves de COVID-19. Estudios previos han identificado cambios en los perfiles de expresión de HERVs tras la infección por SARS-CoV-2 que podrían estar asociados con la patogénesis y severidad del COVID-19 [@grandi2023human,@charvet2023sars, @guo2024identification]. 
+
+En este sentido, los pacientes graves de COVID-19 mostraron un aumento en la expresión de HERVs (Figura \ref{fig:HERVs_DET_fig} A), destacando la presencia HERV-K, HERV-W y ERV1 (Figura \ref{fig:HERVs_DET_fig} C). También se identificó un elevado número de elementos LINE-1 [@koch2022sars]. Así mismo, los pacientes graves de COVID-19 mostraron sobreexpresados genes relacionados con mecanismos epigenéticos, como la metilación de histonas (Figura \ref{fig:HERVs_DEG_fig}). 
+
+De forma conjunta, en los perfiles del retrotranscriptoma y el transcriptoma de pulmón analizados, se hallaron grupos de ERs y genes implicados en procesos biológicos relacionados con infecciones por SARS-CoV, cuyas expresiones se correlacionaban con los perfiles de expresión en pacientes graves de COVID-19, sugiriendo una posible regulación conjunta de estos elementos en pulmón en relación con la infección por SARS-CoV-2. Dentro de ese grupo de elementos genómicos, se identificaron `r mod3_DEG` genes y `r mod3_DET` ERs con perfiles de expresión alterados en pacientes graves de COVID-19 que estaban relacionados con modificaciones epigenéticas de la cromatina; y procesos inmunológicos como la degranulación de neutrófilos y presentación y procesamiento de antígenos (Figura \ref{fig:Coexpression_net}). Estos resultados sugieren que la infección por SARS-CoV-2 podría inducir cambios en la conformación del DNA que induzcan la expresión de HERVs. 
+
+
+## Discusión de resultados en relación a investigaciones previas
+
+Numerosos estudios han reportado alteraciones en la expresión de HERVs en pacientes con COVID-19 [@grandi2023human, @balestrieri2021evidence, @simula2022increased, @@charvet2023sars, @guo2022high, @kitsou2021upregulation, @ansari2023antiviral, @guo2024identification], destacando el aumento de la expresión de HERV-K [@kitsou2021upregulation, @charvet2023sars], HERV-W [@petrone2023expression] y ERV1 [@guo2024identification].La expresión de estos HERVs podría estar relacionada con la desregulación de la respuesta inmunitaria frente al COVID-19 [@balestrieri2021evidence, @guo2022high, @guo2024identification]. Pacientes con una respuesta severa a la infección del COVID-19 mostraron aumentada la expresión de elementos ERV1 enriquecidos en procesos biológicos relacionados modificaciones de histonas [@guo2024identification]. Tras la infección por SARS-CoV-2, las proteínas del virus interaccionan con diversos componentes de la célula hospedadora, entre los que destacan las enzimas responsables de las modificaciones de histonas, provocando a su vez alteraiones en la cromatina que afectan a la expresión génica [@guarnieri2024sars]. En este sentido, leucocitos de pacientes con COVID-19 mostraron un aumento en la expresión de la proteína HERV-W ENV [@charvet2023sars], la es reconocida por las células inmunitarias [@simula2023antibody, @gimenez2022herv] y desencadena la producción de citoquinas inflamatorias [@balestrieri2021evidence, @guo2022high].
+
+
+Además, la expresión de HERVs también se ha relacionado con mayor sevidad de la enfermedad y peor pronóstico [@charvet2023sars, @balestrieri2021evidence, @simula2022increased, @guo2024identification]. Un aumento en la expresión de HERV-K han sido asociados con severidad de la COVID-19 y la muerte prematura causadapor la misma [@petrone2023expression].
+
+Por otro lado, alteraciones en los perfiles de expresión de elementos retrotransponibles han sido asociados a alteraciones en la expresión de genes relacionados con la COVID-19 y la infección por SARS-CoV-2 . Así, la expresión de HERV-H ha sido relacionada con cambios en las expresiones de los genes de interferones de tipo I y II en pacientes pediátricos con COVID-19 [@tovo2021covid].  
+
+Estudios previos han reportado aumentos en la expresión de genes relacionados con modificaciones de histonas en pacientes de COVID-19 severo [@bhat2022understanding, @grandi2023human], sugiriendo que los cambios en la expresión génica podrían estar mediados por modificaciones epigenéticas tras la infección por SARS-CoV2. HERV-H, una de las familias más abundantes en el genoma humano, ha sido relacionada con la regulación genética [@carter2022mosaic], modificaciones en la organización estructural del genoma [@grandi2023human], y la configuración de los dominios de asociación topológica (TAD) en el genoma [@zhang2019transcriptionally].  Por otro lado, existen moléculas derivadas de la transcripción de elementos HERV en el genoma humano con capacidad inmunomoduladora, como algunas moléculas de ARN producidas tras la transcripción de HERV-k y las proteína HML-2 Env y Gag, resultando en la activación de la vía canónica NK-k$\beta$ y aumento de la producción de interferon, respectivamente [@dervan2021ancient]; y HERV-H, que ha sido relacionada con procesos de regulación génica que relacionados con alteraciones en la respuesta inmunitaria [@grandi2023human].   
+
+
+De forma conjunta, la evidencia científica sugiere que la infección por SARS-CoV-2 podría desencadenar cambios moleculares que impacten en la expresión génica, desregulando la respuesta inmunológica frente al virus y desencadenando procesos biológicos relacionados con la severidad y patogenicidad de la enfermedad que persisten en el tiempo tras la resolución de la infección. 
+
+## Limitaciones
+
+Este trabajo presenta algunas limitaciones. El diseño del estudio supone una limitación para los resultados, ya que la propia comparación entre muestras de sujetos vivos y muertos podría conllevar diferencias significativas en la expresión de elementos genómicos. Sin embargo, las biopsias de pulmón de pacientes muertos se cogieron en las primeras horas para evitar la degradación del tejido. Además, también se observó la presencia de genes y HERVs sobre-expresados en las muestras de pacientes muertes respecto a los vivos. Para corroborar estos resultados, debería repetirse el análisis con muestras del grupo control tomadas también en pulmones de pacientes muertos. Sin embargo, la realización de estudios clínicos en humanos es compleja, por varias razones: (A) sobrecarga asistencial del personal clínico, quienes se encargan de tomar las muestras biológicas de los pacientes; (B) dificultad de encontrar pacientes cumplan con los criterios de inclusión parahomogeneizar la población en cuanto a variables relevantes como edad y sexo; (c) así la complejidad de lo trámites burocráticos propios de la investigación con muestras humanas.
+
+Los análisis genómicos deben realizarse con un número alto de muestras para aumentar la potencia estadística del análisis y obtener estimadores más robusto. En este trabajo se ha empleado un número reducido de muestras analizadas, lo que podría haber afectado a los resultados del análisis y a la precisión de los estimadores. Debido a esto, no se ha evaluado la influencia de terceras variables en los análisis de asociaciones. 
+
+El reducido tamaño muestral también ha impactado en los métodos empleados para la creación de la matriz de coexpresión, la cual se ha tenido que crear con todos los sujetos y evaluar a *posteriori* la relación entre los modulos y la patología de estudio. Además, la red de coexpresión mostró un poder de superior al recomendado, lo que podría deberse al número insuficiente de muestras analizadas, siendo 20 el número mínimo recomendado. Sin embargo,  la red de coexpresión creada mostró un valor de umbral suave de 0,8 indicando que la red creada se aproximaba a una topología de red libre de escala (figura \ref{fig:NET_power})
+
+
+
+En conjunto, los hallazgos de este trabajo sugieren que la infección por SARS-CoV-2 podría inducir cambios epigenéticos, afectando a la expresión de elementos transpoibles como HERVs, contribuyendo a la severidad de la enfermedad y a la persistencia de los síntomas. 
+
+
+## Trabajo futuro
+
+Este trabajo constituye una prueba piloto para evaluar el papel de los HERVs en la inflamación asociada a la enfermedad del coronavirus 19. Teniendo en cuenta los resultados obtenidos y las limitaciones expuestas previamente, las líneas de trabajo para el futuro son:
+
+-	Realizar estudios de metilación en biopsias de pacientes infectados por SARS-CoV-2 en parénquima pulmonar para verificar el efecto de la infección sobre los patrones de metilacion y el grado de condensación del DNA. 
+
+- Realizar un análisis de expresión diferencial comparando una muestra mayor de pacientes graves de COVID-19 fallecidos con pneumonía aguda y pacientes sanos que hayan fallecido por otras causas no relacionadas con patologías respiratorias.
+
+- Evaluar la patogenicidad de los elementos retrotransponibles diferencialmente expresados en pacientes graves de COVID-19, introduciendo los péptidos codificados por las secuencias de los ERs más interesantes identificados en nuestro análisis y evaluando la respuesta inmunlógica desencadenada *in vitro*.
+
+
+
+# Conclusiones
+
+A lo largo de este trabajo se ha analizado el impacto de la COVID-19 en la expresión de retrovirus endógenos humano (HERVs), y cómo la expresión de esos HERVs se relaciona la disrupción de la respuesta inmunitaria frente a SARS-CoV-2. Las conclusiones obtenidas se enumeran a continaución:
+
+1. Los pacientes de COVID-19 fallecidos por neumonía asociada a la enfermdad presentan incrementos en las expresiones de HERVs, destacando la sobreexpresión de HERV-K y HERV-W. Estos HERVs modulan la respuesta inmunitaria y están relacionados con la severidad del COVID-19.
+
+
+2. La infección por SARS-CoV-2 podría inducir la expresión de genes relacionados con modificaciones epigenéticas, y con la respuesta celular a cambios en el estado o la actividad de la célula.
+
+
+3. La expresión de HERVs en pacientes con SARS-CoV-2 también podría estar relacionada con cambios en la expresión de genes en pacientes fallecidos por neumonía aguda asociada a COVID-19. 
+
+Finalmente, es importante tener en cuenta que las técnicas bioinformáticas empleadas en este trabajo han demostrado ser potentes herramientas para identificar patrones y conjuntos de elementos correlacionados entre sí dentro de grandes conjuntos de datos como son los obtenidos en las técnicas ómicas. Estas técnicas permiten el manejo de datos masivos, aportando un enfoque global. Sin embargo, existen liminationes inherentes a estos métodos como la dependencia de la calidad e integridad de los datos analizados y la influencia de la elección de los parámetros aplicados en cada técnica. 
+
+Para asegurar la robustez y poder validar los hallazgos obtenidos en el análisis de datos masivos usando técnicas bioinformáticas, es importante completarlos con determinaciones moleculares experimentales, como la PCR y ensayos de expresión de proteínas.
+
+
+# Material suplementario
+
+Todo el material suplementario se encuentra incluido en los anexos que acompañan este documento y en el repositorio creado.
+
+\newpage
+# Referencias
+
+<div id="refs"></div>
+
+\newpage
+
+\beginsupplement
+
+# Anexos y Material Suplementario
+
+## Anexo I. Análisis de calidad de las muestras
+
+
+```{r TabSup1, echo=FALSE}
+knitr::kable(Tab_Sup1, caption="\\label{tab:TabSup1} Resumen del análisis de los datos de secuenciación de ARN. Análisis descriptivo de los resultados del filtrado y mapeado de las lecturas de la secuenciación de ARN. Lecturas crudas (millones): cantidad total de lecturas crudas, expresadas en millones, obtenidas tras secuenciar las muestras. Este valor se obtiene sumando la cantidad de las lecturas 1 y 2 de cada muestra. Datos crudos: contenido en G en las lecturas, calculado multiplicando las lecturas crudas por la longitud de las secuencias, que es en este caso es 150. Eficacia: medida de la eficacia del filtrado de las lecturas tras eliminar las lecturas con baja calidad y las secuencias de los adaptadores. Este valor se calcula como el ratoio entre las lecturas limpias entre las lecturas crudas, expresado en tantos por cien. Q20, Q30: medida de la calidad de las bases en la secuenciación, calculado como el cociente entre el recuento de bases con valor Phred (Q) mayor de 20 o 30, respectivamente, y el recuento de bases total. El valor Phred representa la probabilidad estimada de un error en la base identificada. Cuanto mayor es el valor de Phred, mejor es la calidad de la base secuenciada. GC: contenido de bases G y C referido al contenido total de bases en las lecturas.")
+```
+
+
+
+```{r GC_rawseq, eval=TRUE, fig.cap="\\label{fig:GC_rawseq} Distribución del contenido GC por secuencia y el contenido relativo de duplicación encontrado en cada secuencia. Se representan en rojo las secuencias que muestran. A) Resultados del análisis de la distribución del contenido GC en todas las muestras secuenciadas. B) Resultados del análisis de la distribución del contenido GC en las muestras de pacientes secuenciadas controles. C) Resultados del análisis de la distribución del contenido GC en las muestras de pacientes secuenciadas COVID-19. ", out.height="80%", echo=FALSE, fig.align = 'center'}
+
+knitr::include_graphics(path="D:/Académico/Master Bioinformatica 2022_2023/TFM/memoria/figs/Slide1.jpg")
+```
+\newpage
+
+
+## Anexo II. elementos retrotransponibles identificados en muestras de pulmón
+
+El anexo IV se corresponde con el archivo `HERVs_COVID__n19_univariate.csv` depositado en el repositorio creado para este trabajo:
+https://github.com/AzaharaGS/TFM_HERVs_COVID
+
+
+\newpage
+
+
+## Anexo III. Evaluación de la red de coexpresión
+
+
+```{r NET_power, eval=TRUE, fig.cap="\\label{fig:NET_power} Distribución del contenido GC por secuencia y el contenido relativo de duplicación encontrado en cada secuencia. Se representan en rojo las secuencias que muestran. A) Resultados del análisis de la distribución del contenido GC en todas las muestras secuenciadas. B) Resultados del análisis de la distribución del contenido GC en las muestras de pacientes secuenciadas controles. C) Resultados del análisis de la distribución del contenido GC en las muestras de pacientes secuenciadas COVID-19. ", out.height="40%", echo=FALSE, fig.align = 'center'}
+
+knitr::include_graphics(path="figs/NET_fig_power.png")
+```
+
+
+
+
+## Anexo IV. Resultados del análisis de enriquecimiento de la red de coexpresión.
+
+El anexo IV se corresponde con el archivo `enrichment_mod3complete_KEGG_REACT.csv` depositado en el repositorio creado para este trabajo:
+https://github.com/AzaharaGS/TFM_HERVs_COVID
+
+```{r Tab_FA_mod3, eval=TRUE, echo=FALSE}
+knitr::kable(enrichment_mod3_KEGG_REACT_all, caption="\\label{tab:Tab_FA_mod3} Resultado del análisis funcional de enriquecimiento empleando las terminología KEGG y REACTOME sobre los elementos genómicos incluidos en el módulo 3 de la red de coexpresión creada a partir de las expresiones génicas de las muestras de pulmón analizadas.")
+```
+
+\newpage
+
+## ANexo V. Heatmap con elementos genómicos identificados en módulo 3
+
+```{r heatmap_mod2, fig.cap="\\label{fig:volcanoplotHERVs}  Gráfico de volcán que muestra los retrovirus endógenos humanos (HERVs) diferencialmente expresados, sobrerregulados (lado derecho) e infraexpresados (lado izquierdo) en muestra COVID-19. Las líneas de corte indican un valor de p igual a 0.05 (eje x) y un valor de cambio expresado en log2 (LFC) mayor de 1,5 (eje y). Los HERVs sobreexpresados e infraexpresados, con significación estadísitica, se muestra en color verde y rojo respectivamente. ", echo=FALSE, eval=TRUE, out.width="60%", fig.align = 'center'}
+
+knitr::include_graphics(path="figs/Figura_heatmap_HERVs_DEG_mod3.png")
+
+```
+
+
+## Otras figuras
+
+
+
+\newpage
+### Distribución de familias HERVs
+```{r HERV_Fam_Hist, eval=TRUE, fig.cap="\\label{fig:HERV_Fam_Hist}  Frecuencias de retrovirus endógenos humanos (HERVs) distribuidos por grupos de familias. (A) Frecuencias de HERVs agrupados por grupos de familias incluidos en la base de datos utilizarda para anotar las secuencias identificadas (expresadas en log10). (B) Frecuencias de HERVs agrupados por grupos de familias identificados en los HERVs diferencialmente expresados (DEH) encontrados (expresadas en log10) (C) Relación entre las frecuencias de las familias de HERVs identificadas en los DEH y la frecuencia de familias HERV en la base de datos inicial. La línea discontínua roja indica la relación esperada, calculada como el cociente entre el número total de HERVs en la base de datos y el número de DEH.", echo=FALSE,out.width="80%", fig.align = 'center'}
+
+knitr::include_graphics(path="figs/HERVs_FamilyGroup_Hist_up.png")
+
+```
