@@ -1,0 +1,1756 @@
+---
+title: "TFM analysis"
+author: "Azahara M Garcia Serna"
+date: "`r Sys.Date()`"
+output: 
+  bookdown::html_document2:
+    toc: true
+    toc_float: true
+    toc_depth: 5
+    number_sections: true
+    fig_caption: TRUE #pie de figura
+    theme: paper
+    highlight: zenburn
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Paquetes
+
+```{r paquetes, echo=TRUE, include=FALSE}
+#paquetes
+library(knitr)
+library(readr)
+library(readxl)
+library(kableExtra)
+library(tidyr)
+library(DESeq2) #bioconductor
+library(apeglm) #bioconductor
+library(ggplot2)
+library(gprofiler2)
+library(dplyr)
+library(EnhancedVolcano) #bioconductor
+library(patchwork)
+
+#exportar data tbt
+library(gtsummary)
+library(writexl)
+
+
+#venn diagram
+library(DescTools)
+
+
+# - **DescTools**. Se trata de un paquete que contiene funciones de estadística básica y que permiten realizar un análisis descriptivo de los datos eficiente. En este trabajo, se ha utilizado para realizar un diagrama de Venn
+
+#import salmon data
+library(tximport) #bioconductor
+#genes
+library(TxDb.Hsapiens.UCSC.hg38.knownGene)
+#anotacion genes humanos
+library(org.Hs.eg.db)
+#diagrama de Venn
+library(VennDiagram)
+#circle plots
+# Instalar y cargar el paquete circlize
+#install.packages("circlize")
+library(circlize)
+library(biomaRt)
+#co-expression analysis
+library(GWENA)
+
+```
+
+
+# Funciones
+
+
+```{r}
+#gráfico de barras
+Hist_sort <-
+  function(ddbb,var_group,ejey, lab_x, lab_y){
+  ggplot2::ggplot(data=ddbb, aes(x = {{ var_group }}, y={{ ejey }}, fill= {{ var_group }})) +
+  geom_bar(stat="identity")+
+  xlab(lab_x) +
+  ylab(lab_y) +
+  geom_text(aes(label={{ ejey  }}), vjust=0.5, hjust=-0.2, size=6, angle=90)+
+  theme_minimal() +
+  theme(axis.title.x = element_text(size = 20),
+        axis.text.x = element_text(angle = 45,hjust=1, size=15),
+        axis.title.y = element_text(size = 20),
+        axis.text.y = element_text(size = 15), legend.position="none")
+  }
+
+
+pie_plot <- 
+  function(ddbb,var_group,ejey, etiquetas){
+  ggplot2::ggplot(data=ddbb, aes(x = "", y={{ ejey }}, fill= {{ var_group }})) +
+  geom_bar(stat="identity", width=1, color="white") +
+  coord_polar("y", start=0) +
+  scale_fill_brewer(palette = "Set2") +
+  theme_void() +
+  geom_text(aes(label={{ etiquetas  }}),
+            position = position_stack(vjust = 0.5))
+
+  }
+  
+
+ 
+```
+
+
+# Importar datos
+
+## Quality data
+
+```{r bbdd_quality, echo=TRUE}
+#datos de análisis de calidad de muestras en novogene
+data_samplequality_novogene <- read_csv("D:/Académico/Master Bioinformatica 2022_2023/TFM/endovirusMuestrasSantiago/secuenciacion_muestras/data_samplequality_novogene.csv")
+
+quality_RNA <- 
+  data_samplequality_novogene %>%
+  dplyr::select(c( "Sample Name", "Concentration(ng/ul)", "Integrity value", "Sample QC Results")) %>%
+  mutate(group=sub("COV[0-9]*", "", data_samplequality_novogene$`Sample Name`))
+
+for (i in 1:length(names(quality_RNA))) {
+  if (names(quality_RNA)[i]=="Sample Name"){
+    names(quality_RNA)[i]<-"expediente"}
+  if (names(quality_RNA)[i]=="Concentration(ng/ul)"){
+    names(quality_RNA)[i]<-"concentration_ngul"}
+  if (names(quality_RNA)[i]=="Integrity value"){
+    names(quality_RNA)[i]<-"RIN"}
+  if (names(quality_RNA)[i]=="Sample QC Results"){
+    names(quality_RNA)[i]<-"QC_cat"}
+}
+
+colnames(quality_RNA)
+
+#importamos datos de análisis de calidad de archivos fastq (raw data)
+RNAseq_raw_quality <- read.delim("D:/Académico/Master Bioinformatica 2022_2023/TFM/endovirusMuestrasSantiago/secuenciacion_muestras/RNA quality assessment/RNAseq_raw_quality.txt", header=TRUE)
+
+#head(RNAseq_raw_quality)
+RNAseq_raw_quality$Group <- NA
+for (i in 1:dim(RNAseq_raw_quality)[1]) {
+  if (sum(grep("COV[0-9]+C",RNAseq_raw_quality$Sample[i]))) 
+    RNAseq_raw_quality$Group[i] <- "COVID"
+   else if (sum(grep("COV[0-9]+E",RNAseq_raw_quality$Sample[i]))) 
+    RNAseq_raw_quality$Group[i] <- "Control"
+  
+}
+
+rownames(RNAseq_raw_quality) <- RNAseq_raw_quality$Sample
+
+#importamos resumenes del análisis de calidad del FastQC
+qualityanalysis <-
+  data.frame(status=factor(), statistics=character(), file=character())
+
+dirs_fastaqc <- 
+  list.dirs(path = "D:/Académico/Master Bioinformatica 2022_2023/TFM/endovirusMuestrasSantiago/results/quality_analysis", 
+             recursive = FALSE,full.names = FALSE)
+
+
+for (i in dirs_fastaqc) {
+  newdb <-
+  read.delim(paste("D:/Académico/Master Bioinformatica 2022_2023/TFM/endovirusMuestrasSantiago/results/quality_analysis/",i,"/summary.txt",sep = ""), 
+           sep="\t",
+           col.names=c("status", "statistics", "file"))
+  qualityanalysis <- 
+    rbind(newdb, qualityanalysis)
+}
+
+#asignamos clase correcta
+qualityanalysis$status <- factor(qualityanalysis$status)
+qualityanalysis$file <- factor(qualityanalysis$file)
+
+
+
+### calidad de alineamiento
+Bowtie_quality_raw <- 
+  read.table("D:/Académico/Master Bioinformatica 2022_2023/TFM/memoria/tabs/multiqc_general_stats.txt",
+                        sep = "\t", 
+                        header = TRUE, 
+                        quote = "")
+
+
+### calidad cuantificación HERVs Telescope
+Run_stats_Telescope <- read.delim("D:/Académico/Master Bioinformatica 2022_2023/TFM/endovirusMuestrasSantiago/results_20240527/Telescope_may2024/Run_stats_Telescope_encabezado2.txt")
+```
+
+## HERV expression data
+
+```{r HERVs_data, echo=TRUE}
+#Importamos perfiles de expresión de HERVs en matrixcount
+setwd("D:/Académico/Master Bioinformatica 2022_2023/TFM/endovirusMuestrasSantiago/results_20240527/Telescope_may2024/")
+
+files <- 
+  list.files(path = ".", 
+             pattern = "-TE_counts.tsv", 
+             all.files = FALSE,full.names = FALSE)
+
+file_names <- sub("-TE_counts.tsv","", files)
+matrixcount_all <- data.frame(transcript=character())
+
+
+for (i in seq(length(file_names))) {
+  file_bam <- read.delim(paste("D:/Académico/Master Bioinformatica 2022_2023/TFM/endovirusMuestrasSantiago/results_20240527/Telescope_may2024/",files[i], sep ="")) #importo la matriz de recuentos
+  names(file_bam)[2] <-  file_names[i] #asigno nombre a la columna de los recuentos
+  matrixcount_all <- merge(matrixcount_all,file_bam,by="transcript",all=TRUE) #creamos matriz global
+}
+
+
+rownames(matrixcount_all) <- matrixcount_all$transcript
+#quitamos el subfijo retro de los nombres de las columnas
+colnames(matrixcount_all) <- sub("_retro","",colnames(matrixcount_all))
+
+
+RNA_seq_HERVs <- 
+  as.data.frame(matrixcount_all[,-1])
+RNA_seq_HERVs["HERVs_NA",] <- colSums(is.na(RNA_seq_HERVs))
+RNA_seq_HERVs["HERVs_0",] <- colSums(RNA_seq_HERVs==0, na.rm=TRUE)
+RNA_seq_HERVs["HERVs_notO",] <- colSums(RNA_seq_HERVs>0, na.rm=TRUE)
+RNA_seq_HERVs <- as.data.frame(t(RNA_seq_HERVs[c("__no_feature","HERVs_0","HERVs_notO","HERVs_NA"),]))
+
+RNA_seq_HERVs_group <- merge(RNAseq_raw_quality[,c("Sample","Group"  )],RNA_seq_HERVs,by='row.names')
+
+#eliminamos los HERVs no identificados
+matrixcount_all <- matrixcount_all[rownames(matrixcount_all)!="__no_feature",]
+
+
+#saveRDS(matrixcount_all, "matrixcount_100iter_n19.rds")
+
+#matriz todas variables
+patients_data_all <- read.table("D:/Académico/Master Bioinformatica 2022_2023/TFM/endovirusMuestrasSantiago/results_20240527/DE analysis/groups_patients_all.txt")
+patients_data_all$condition <- factor(patients_data_all$condition, levels=c("Control", "COVID"))
+
+#ordenamos la matriz como la bbdd de metadatos
+matrixcount_complete <- matrixcount_all[,rownames(patients_data_all)]
+
+#eliminamos los NAs
+matrixcount_complete[is.na(matrixcount_complete)] <- 0
+
+#saveRDS(matrixcount_complete, "matrixcount_HERV_LINE1_100itr_may24.rds")
+setwd("D:/Académico/Master Bioinformatica 2022_2023/TFM/memoria/TFM analysis")
+```
+
+
+```{r, echo=TRUE}
+#base de datos con covariables
+patient_HERvs_list <- as.data.frame(
+  read_excel("D:/Académico/Master Bioinformatica 2022_2023/TFM/endovirusMuestrasSantiago/secuenciacion_muestras/patient_HERvs_list.xlsx"))
+
+rownames(patient_HERvs_list) <- patient_HERvs_list$expediente
+
+
+
+#añadimos sexo a grupos de estudio
+patients_data_all_cov <- 
+  merge(patients_data_all, patient_HERvs_list[,c("sexo", "edad", "expediente")], by='row.names', all=T)
+
+rownames(patients_data_all_cov) <- patients_data_all_cov$expediente
+patients_data_all_cov$sexo <- factor(patients_data_all_cov$sexo)
+
+patients_data_all_cov_RIN <- 
+  merge(patients_data_all_cov, quality_RNA[,c("expediente","RIN", "QC_cat" )], by="expediente")
+rownames(patients_data_all_cov_RIN) <- patients_data_all_cov_RIN$expediente
+patients_data_all_cov_RIN$QC_cat <- factor(patients_data_all_cov_RIN$QC_cat)
+
+patients_data_all_cov_RIN <- patients_data_all_cov_RIN[colnames(matrixcount_complete),]
+
+#saveRDS(patients_data_all_cov_RIN,"patients_data_all_cov_RIN.rds")
+```
+
+
+## Transcript counts
+
+1. Taking a look to structure of the data.frame of transcripts and to their respective gene names.
+```{r, eval=TRUE, echo=TRUE}
+temp <- read.delim("D:/Académico/Master Bioinformatica 2022_2023/TFM/Salmon results_20240529/COV1C_quant/quant.sf")
+
+temp[1:3, ]
+```
+
+2. Retrieve a transcript names (TXNAME) to gene ids (GENEID) map from
+
+```{r, eval=TRUE, echo=TRUE}
+Tx2Gene <- AnnotationDbi::select(TxDb.Hsapiens.UCSC.hg38.knownGene, keys = as.vector(temp[, 1]),
+    keytype = "TXNAME", columns = c("GENEID", "TXNAME"))
+Tx2Gene <- Tx2Gene[!is.na(Tx2Gene$GENEID), ]
+head(Tx2Gene[order(Tx2Gene$GENEID), ])
+
+
+```
+
+
+3. Import and summarize our Salmon quantification files to gene level expression estimates.
+
+```{r, eval=TRUE, echo=TRUE}
+
+salmonQ <- dir("D:/Académico/Master Bioinformatica 2022_2023/TFM/Salmon results_20240529/", 
+               recursive = T, 
+               pattern = "quant.sf", 
+               full.names = T)
+
+names(salmonQ) <- 
+sub("_quant/quant.sf","", sub("D:/Académico/Master Bioinformatica 2022_2023/TFM/Salmon results_20240529/","", salmonQ))
+
+
+```
+
+
+```{r}
+RNA_seq_genes <- data.frame()
+Gene_no_zero <- data.frame()
+for (i in 1:length(salmonQ)) {
+  RNA_seq_genes <-
+    RNA_seq_genes %>%
+    bind_rows(colSums(read.delim(salmonQ[i])[,2:5]))
+  Gene_no_zero <-
+    Gene_no_zero %>% 
+    bind_rows(colSums(read.delim(salmonQ[i])["NumReads"]>0))
+}
+
+rownames(RNA_seq_genes) <- names(salmonQ)
+rownames(Gene_no_zero) <- names(salmonQ)
+
+
+RNA_seq_genes_gene_no_zero <- merge(RNA_seq_genes, Gene_no_zero, by="row.names")
+rownames(RNA_seq_genes_gene_no_zero) <- rownames(RNA_seq_genes)
+#sin hacer porque no se estánimportandobien los datos
+```
+
+
+# Summary statistics of RNA-seq data and mapping results
+
+```{r}
+
+
+Bowtie_quality <-
+  Bowtie_quality_raw %>% 
+  filter(!is.na(QualiMap_mqc_generalstats_qualimap_total_reads)) %>%
+  mutate(Sample_s=gsub('_sort_qm',"",Sample)) %>% 
+  dplyr::select(Sample_s, QualiMap_mqc_generalstats_qualimap_total_reads,QualiMap_mqc_generalstats_qualimap_mapped_reads,QualiMap_mqc_generalstats_qualimap_percentage_aligned, QualiMap_mqc_generalstats_qualimap_general_error_rate) %>% 
+  rename(Sample=Sample_s)
+
+
+Bowtie_quality_group <- 
+  merge(
+  Bowtie_quality, 
+  RNAseq_raw_quality[,c("Sample", "Group")], 
+  by="Sample", all = TRUE)
+
+Bowtie_quality_group$Group <- factor(Bowtie_quality_group$Group)
+Bowtie_quality_group$Group <- relevel(Bowtie_quality_group$Group, ref="Control")
+rownames(Bowtie_quality_group) <- Bowtie_quality_group$Sample
+
+Bowtie_quality_group %>%
+  dplyr::select(Group,QualiMap_mqc_generalstats_qualimap_total_reads,QualiMap_mqc_generalstats_qualimap_mapped_reads,QualiMap_mqc_generalstats_qualimap_percentage_aligned, QualiMap_mqc_generalstats_qualimap_general_error_rate) %>%
+  tbl_summary(by = Group,
+              label=list(QualiMap_mqc_generalstats_qualimap_total_reads ~ "Lecturas analizadas (Millones)", QualiMap_mqc_generalstats_qualimap_mapped_reads ~ "Lecturas alineadas (Millones)", QualiMap_mqc_generalstats_qualimap_percentage_aligned ~ "Lecturas alineadas (%)", QualiMap_mqc_generalstats_qualimap_general_error_rate ~ "Ratio de error de alineamiento")) %>%
+  modify_header(label = "**Parámetros**") %>%
+  add_p(test = list(all_continuous() ~ "t.test")) %>%
+  add_overall(col_label="**Total**, N = {N}") %>%   
+  gtsummary::as_tibble() %>% 
+  writexl::write_xlsx(., "Bowtie_quality_group_stats.xlsx")
+
+```
+
+
+
+
+# HERVs differential expression analysis of COVID lung samples vs. health lung samples (n=`r nrow(patients_data_all_cov_RIN)`)
+
+We quantified the expression of TEs from publicly available RNA-Seq data of `r sum(patients_data_all_cov_RIN$condition=="COVID")` COVID samples and `r sum(patients_data_all_cov_RIN$condition=="Control")` healthy lung samples using the specialised bioinformatics tool Telescope.
+
+
+## Estadísticas del alineamiento y mapeo
+
+```{r}
+
+
+Run_stats_Telescope_group <- 
+  merge(
+  Run_stats_Telescope[c("Muestra", "annotated_features", "total_fragments", "pair_mapped", "pair_mixed", "single_mapped", "unmapped", "unique", "ambig", "overlap_unique", "overlap_ambig")], 
+  RNA_seq_HERVs_group[,c("Sample", "Group", "__no_feature", "HERVs_0", "HERVs_notO", "HERVs_NA" )], 
+  by.x="Muestra", by.y="Sample", all = TRUE)
+
+
+rownames(Run_stats_Telescope_group) <- Run_stats_Telescope_group$Muestra
+Run_stats_Telescope_group$overlap_ambig <- as.numeric(gsub("transcript", "", Run_stats_Telescope_group$overlap_ambig))
+
+
+#castellano
+Run_stats_Telescope_group %>%
+  dplyr::select(Group,total_fragments, pair_mapped, pair_mixed, 
+         #single_mapped, #se quita porque es en todos 0
+         unmapped, unique, ambig, overlap_unique, overlap_ambig, "__no_feature", HERVs_0, HERVs_NA, HERVs_notO) %>%
+  tbl_summary(
+    by = Group,
+    label=list(total_fragments ~ "Fragmentos totales procesados", pair_mapped ~  "Lecturas pareadas alineadas", pair_mixed ~ "Lecturas pareadas alineadas a ubicaciones distintas del genoma", 
+               #single_mapped ~ "alineamientos únicos", 
+               unmapped ~ "Fragmentos no alineados", unique ~ "Alineamientos únicos sin ambiguedad", ambig ~ "Alineamientos ambiguos", overlap_unique ~ "Superposiciones con regiones únicas", overlap_ambig ~ "Superponen con regiones ambiguas", "__no_feature" ~ "Lecturas que no han sido asignadas a ninguna secuencia conocida", HERVs_0 ~ "HERVs con cero lecturas", HERVs_NA ~ "HERvs no detectados", HERVs_notO ~ "HERVs con alguna lectura"),
+    statistic = list(all_continuous() ~ "{median} ({p25}; {p75})")) %>%
+  add_p(test = list(all_continuous() ~ "t.test")) %>%
+  modify_header(label = "**Parámetros**") %>% 
+  add_overall(col_label="**Total**, N = {N}") %>%   
+  gtsummary::as_tibble() %>% 
+  writexl::write_xlsx(., "Telescope_quality_group_stats.xlsx")
+
+
+
+```
+
+the number of fragments processed, number of mapped fragments, number of uniquely and ambiguously mapped fragments, and number of fragments mapping to the annotation
+
+
+## Pre-filtering
+
+
+```{r, echo=TRUE, include=FALSE}
+# Creamos el objeto para DESeq
+dds_all <- DESeqDataSetFromMatrix(countData = matrixcount_complete,
+                              colData = patients_data_all_cov_RIN,
+                              design = ~ condition)
+#dds_all
+
+
+#filtering:
+##1. counts > 10 (recommended by package author).  non-specific filter that doesn't make use of information about which samples are in which designe increases detection power for high-throughput experiments
+min_counts <- 10
+##2. n_samples: smallest group size 
+n_samples <- min(table(patients_data_all_cov_RIN$condition))
+#identify HERVs and filtering
+keep_v02_A <- rowSums(counts(dds_all)>min_counts) >= n_samples
+dds_prefil_all <- dds_all[keep_v02_A,]
+#saveRDS(dds_prefil_all,"dds_HERVs_filtered.rds")
+```
+
+
+First, we filtered out genes where there are less than 9 samples with counts greater than or equal to 10, following DESEq2 author recommendation. The final matrix counts included `r nrow(dds_prefil_all)` HERVs.
+
+We assessed differential expression of HERVs from SARS-CoV-2 infection with those induced in health lung samples. 
+
+
+```{r , echo=TRUE}
+dds_DE_all <- DESeq(dds_prefil_all) #DE analysis
+res_all <- results(dds_DE_all) #results
+
+#filtrando padj<0.05 y FC>1.5
+HERVs_DE_n_all <- 
+  sum(res_all$padj < 0.05 & abs(res_all$log2FoldChange) > 1.5 & is.na(res_all$padj)==FALSE , na.rm=TRUE)
+HERVs_DE_all <- res_all[res_all$padj<0.05 & is.na(res_all$padj)==FALSE & abs(res_all$log2FoldChange)>1.5 ,]
+
+HERVs_DE_all$regulation_COVID <- "init"
+for (i in seq(1,nrow(HERVs_DE_all))) {
+  if (HERVs_DE_all$log2FoldChange[i]>0) {HERVs_DE_all$regulation_COVID[i]="up"} 
+  else if (HERVs_DE_all$log2FoldChange[i]<0) {HERVs_DE_all$regulation_COVID[i]="down"} 
+}
+
+```
+
+
+HERV expression differences were considered significant if the adjusted p-value was <0.05 and the absolute log2-fold change was higher than 1.5. `r nrow(HERVs_DE_all)` of `r nrow(matrixcount_complete)` HERVs analyzed were differentially expressed (DE) between `r sum(patients_data_all_cov_RIN$condition=="COVID")` COVID samples and `r sum(patients_data_all_cov_RIN$condition=="Control")` health lung samples; `r sum(HERVs_DE_all$regulation_COVID=="up")` HERVs were upregulated, and `r sum(HERVs_DE_all$regulation_COVID=="down")` were downregulated in COVID samples.
+
+
+
+```{r, volcanoplotHERVs}
+
+volcanoplot_all <- 
+  
+  EnhancedVolcano(res_all,
+    #lab = "none",
+    lab = rownames(res_all),
+    #selectLab = c("ERVLE_4q25e", "ERVLB4_12p13.2a", "L1FLnI_2q31.1a", "L1FLnI_6q21s", "HERVL_22q13.31", "L1FLnI_8q13.2d", "ERVLE_6p22.1a", "ERVLE_15q25.1e", "HML5_1q22", "L1FLnI_2q31.2q"),
+    x = 'log2FoldChange',
+    y = 'padj',
+    FCcutoff = 1.5,
+    title = "",
+    subtitle = "Análisis de la expresión diferencial de HERVs")
+
+
+volcanoplot_all_DEH <-
+  volcanoplot_all +
+  ggplot2::coord_cartesian(xlim=c(-7, 6)) +
+  ggplot2::scale_x_continuous(
+    breaks=seq(-7,6, 1))
+
+```
+
+
+## HERVs annotation
+
+```{r, echo=TRUE}
+rowranges <- read.delim("D:/Académico/Master Bioinformatica 2022_2023/TFM/Telescope Meta annotations/Telescope_MetaAnnotations-main/TE_annotation.v2.0.tsv", 
+                        sep = "\t", 
+                        header = TRUE, 
+                        quote = "", 
+                        row.names = 1)
+
+rowranges$locus <- rownames(rowranges)
+  
+  
+#grupos de familias
+HERVs_family_counts <- read.delim("D:/Académico/Master Bioinformatica 2022_2023/TFM/endovirusMuestrasSantiago/annotation_CNIT/HERVs_family_counts.txt", header=FALSE)
+
+names(HERVs_family_counts) <- c("Family", "counts", "Family_group")
+
+
+HERVs_annotation <-
+  merge(rowranges, HERVs_family_counts[,c("Family", "Family_group")], all=TRUE)
+
+rownames(HERVs_annotation) <- HERVs_annotation$locus
+
+```
+
+
+
+```{r, echo=TRUE, eval=TRUE}
+HERVs_DE_ann_all <- merge(as.data.frame(HERVs_DE_all), HERVs_annotation, by='row.names')
+rownames(HERVs_DE_ann_all) <- HERVs_DE_ann_all$Row.names
+
+HERVs_COVID_ann_all <- HERVs_DE_ann_all[,
+                                       c("baseMean","log2FoldChange","lfcSE","stat",
+                                         "pvalue", "padj", 
+                                         "regulation_COVID",
+                                         "Class", "Family", "Family_group",
+                                         "Category",
+                                         "Chrom", "Start", "End", "Strand",
+                                         "TE_CODING", "TE_type",
+                                         "IntersectedGene", "IntersectedGeneType",
+                                         "IntersectedOrientation", "IntersectedGeneID")]
+#exportamos la tabla de resultados
+# write.table(HERVs_DE_ann_all, "./HERVs_COVID__n19_univariate.csv",
+#           sep=";",
+#           dec = ",",
+#           row.names = FALSE)
+```
+
+  - HERVs Class:
+```{r HERVs_class_all, echo=TRUE, eval=TRUE}
+
+HERVs_DE_class <-
+  HERVs_COVID_ann_all %>%
+  group_by(Class)  %>%
+  summarise(number = n())
+
+HERVs_DE_class_group <- 
+  HERVs_COVID_ann_all %>%  
+    group_by(Class) %>%
+    count(regulation_COVID) %>%
+    spread(regulation_COVID, n)
+
+
+#kableExtra::kable(merge(HERVs_DE_class, HERVs_DE_class_group), col.names = c("Class", "all", "down", "up"), caption = "\\label{tab:HERVs_class} HERVs differential expressed in COVID samples: Class")
+
+knitr::kable(merge(HERVs_DE_class, HERVs_DE_class_group), col.names = c("Class", "all", "down", "up"),caption="HERVs differential expressed in COVID samples: Class.")
+```
+
+  - HERVs Family groups:
+```{r HERVs_family_all, echo=TRUE, eval=TRUE}
+HERVs_DE_FamilyGroup <-
+  HERVs_COVID_ann_all %>%
+  group_by(Family_group) %>%
+  summarise(number = n()) 
+
+HERVs_DE_FamilyGroup_group <- 
+  HERVs_COVID_ann_all %>%
+  group_by(Family_group) %>%
+  filter(is.na(Family_group)==FALSE) %>%
+  count(regulation_COVID) %>%
+  spread(regulation_COVID, n)
+
+Family_Group_all <- merge(HERVs_DE_FamilyGroup, HERVs_DE_FamilyGroup_group)
+
+rownames(Family_Group_all) <- Family_Group_all$Family_group
+
+#kableExtra::kable(Family_all[order(Family_all$n, decreasing = TRUE),], col.names = c("Family", "all", "down", "up"), caption = "\\label{tab:HERVs_family} HERV Families")
+
+knitr::kable(Family_Group_all[order(Family_Group_all$n, decreasing = TRUE),], col.names = c("Family_group", "all", "down", "up"),caption="HERV Family group.")
+```
+
+
+  - HERVs Family:
+```{r HERVs_family_all, echo=TRUE, eval=TRUE}
+HERVs_DE_Family <-
+  HERVs_COVID_ann_all %>%
+  group_by(Family) %>%
+  summarise(number = n()) 
+
+HERVs_DE_Family_group <- 
+  HERVs_COVID_ann_all %>%
+  group_by(Family) %>%
+  count(regulation_COVID) %>%
+  spread(regulation_COVID, n)
+
+Family_all <- merge(HERVs_DE_Family, HERVs_DE_Family_group)
+rownames(Family_all) <- Family_all$Family
+
+#kableExtra::kable(Family_all[order(Family_all$n, decreasing = TRUE),], col.names = c("Family", "all", "down", "up"), caption = "\\label{tab:HERVs_family} HERV Families")
+
+knitr::kable(Family_all[order(Family_all$n, decreasing = TRUE),], col.names = c("Family", "all", "down", "up"),caption="HERV Families.")
+```
+
+ 
+
+### Hist Families
+
+```{r}
+#HERV frequency by family. 
+Family_HERVs_all <- 
+  rowranges %>%
+  group_by(Family) %>%
+  count() %>%
+  mutate(all_log10=round(log10(n),3)) %>%
+  arrange(desc(all_log10))
+
+#definimos orden de los niveles de
+Family_HERVs_all$Family <- factor(Family_HERVs_all$Family, levels = Family_HERVs_all[order(Family_HERVs_all$n, decreasing = TRUE),]$Family)
+
+#DEH Families
+HERVs_DEH_Family <-
+  HERVs_COVID_ann_all %>%
+  group_by(Family) %>%
+  count() %>%
+  mutate(DEH_log10=round(log10(n),3)) %>%
+  arrange(desc(DEH_log10))
+
+#agrupamos
+Family_HERVs <-
+  merge(Family_HERVs_all, HERVs_DEH_Family,all.x=TRUE, by="Family")
+
+names(Family_HERVs) <- c("Family", "n_all", "all_log10", "n_DEH","DEH_log10")
+
+Family_HERVs <-
+  Family_HERVs %>%
+  mutate(ratio=round(n_DEH/n_all,3))
+
+##(A) log10 frequency of HERV families in the database 
+plot_family_A <-
+  ggplot(data=Family_HERVs, aes(x = Family, y=all_log10, fill=Family)) +
+  geom_bar(stat="identity")+
+  geom_text(aes(label=all_log10), vjust=0.5, hjust=-0.2, size=2.5, angle=90)+
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45,hjust=1, size=10), legend.position="none")
+
+
+##(B) log10 frequency of HERV families among the DE HERVs in our analysis 
+plot_family_B <-
+  ggplot(data=Family_HERVs, aes(x = Family, y=DEH_log10, fill=Family)) +
+  geom_bar(stat="identity")+
+  geom_text(aes(label=DEH_log10), vjust=0.5, hjust=-0.2, size=2.5, angle=90)+
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45,hjust=1, size=10), legend.position="none")
+
+##(C) Ratio of frequency of DE HERVs in our analysis divided by frequency in the database. Dashed red line indicates the expected ratio (total number of HERVs in the database divided by total number of DE HERVs).
+plot_family_C <-
+  ggplot(data=Family_HERVs, aes(x = Family, y=ratio, fill=Family)) +
+  geom_bar(stat="identity") +
+  geom_text(aes(label=ratio), vjust=0.5, hjust=-0.2, size=2.5, angle=90)+
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45,hjust=1, size=10), legend.position="none") + 
+  geom_hline(yintercept=nrow(HERVs_DE_all)/nrow(matrixcount_complete), linetype="dashed", color="red")
+
+
+
+
+plot_family_A / plot_family_B / plot_family_C + plot_annotation(
+  tag_levels = "A"
+)
+
+#ggarrange(plot_family_A, plot_family_B, plot_family_C, nrow=3) 
+#ggsave("HERVs_Family_Hist.png", dpi = 300, , width = 40, height = 60, units = "cm",bg="white")
+```
+
+```{r}
+HERVs_Family_overrepresented <- as.character(Family_HERVs$Family[which(Family_HERVs$ratio>(nrow(HERVs_DE_all)/nrow(matrixcount_complete)))])
+paste(HERVs_Family_overrepresented, collapse = ",")
+```
+
+
+### Hist HERV Family Groups
+
+Para representar las familias de HERVs por grupos, primero creamos la tabla que contiene las categorías, el número de HERVs en cada grupo y el ratio.
+
+```{r}
+#HERV frequency by family group 
+FamilyGroup_HERVs_all <- 
+  HERVs_annotation %>%
+  group_by(Family_group) %>%
+  filter(is.na(Family_group)==FALSE) %>%
+  count() %>%
+  mutate(all_log10=round(log10(n),3)) %>%
+  arrange(desc(all_log10))
+
+#definimos orden de los niveles de
+FamilyGroup_HERVs_all$Family_group <- factor(FamilyGroup_HERVs_all$Family_group, levels = FamilyGroup_HERVs_all[order(FamilyGroup_HERVs_all$n, decreasing = TRUE),]$Family_group)
+
+#DEH Family group
+HERVs_DEH_Family_group <-
+  HERVs_COVID_ann_all %>%
+  group_by(Family_group) %>%
+  filter(is.na(Family_group)==FALSE) %>%
+  count() %>%
+  mutate(DEH_log10=round(log10(n),3)) %>%
+  arrange(desc(DEH_log10))
+
+
+#agrupamos
+Family_Groups_HERVs <-
+  merge(FamilyGroup_HERVs_all, HERVs_DEH_Family_group,all.x=TRUE, by="Family_group")
+
+names(Family_Groups_HERVs) <- c("Family_group", "n_all", "all_log10", "n_DEH","DEH_log10")
+
+Family_Groups_HERVs <-
+  Family_Groups_HERVs %>%
+  mutate(ratio=round(n_DEH/n_all,3))
+```
+
+
+
+A continuación, creamos el histograma para comparar la distribución de los HERVs en el aarchivo de notación empleado para identificar las secuencias (A), la distribución de los HERVs en los DEH (B) y el ratio entre ambos:
+```{r}
+##(A) log10 frequency of HERV families in the database 
+plot_familyG_A <-
+  Hist_sort(ddbb=Family_Groups_HERVs,var_group=Family_group,
+          ejey=all_log10, 
+          lab_x="Grupos de familias HERV", lab_y="log10(frecuencia total HERVs analizados)") + 
+  ylim(0, max(Family_Groups_HERVs$all_log10)+1) 
+
+##(B) log10 frequency of HERV families among the DE HERVs in our analysis 
+plot_familyG_B <-
+  Hist_sort(ddbb=Family_Groups_HERVs,var_group=Family_group,
+          ejey=DEH_log10, 
+          lab_x="Grupos de familias HERV", lab_y="log10(frecuencia de DEH)") + 
+  ylim(0, max(Family_Groups_HERVs$DEH_log10)+1) 
+
+
+##(C) Ratio of frequency of DE HERVs in our analysis divided by frequency in the database. Dashed red line indicates the expected ratio (total number of HERVs in the database divided by total number of DE HERVs).
+plot_familyG_C <-
+    Hist_sort(ddbb=Family_Groups_HERVs,var_group=Family_group,
+          ejey=ratio, 
+          lab_x="Grupos de familias HERV", lab_y="(frecuencia DEH)/\n(frecuencia todos HERVs analizados)") + 
+  geom_hline(yintercept=nrow(HERVs_DE_all)/nrow(matrixcount_complete), linetype="dashed", color="red") + 
+  ylim(0, 0.075) 
+
+#agrupamos gráficos
+plot_familyG_A / plot_familyG_B / plot_familyG_C + plot_annotation(
+  tag_levels = "A" ) &
+  theme(plot.tag = element_text(size = 25))
+
+#ggsave("HERVs_FamilyGroup_Hist.png", dpi = 300, , width = 40, height = 60, units = "cm",bg="white")
+```
+
+```{r}
+HERVs_Family_overrepresented <- as.character(Family_HERVs$Family[which(Family_HERVs$ratio>(nrow(HERVs_DE_all)/nrow(matrixcount_complete)))])
+paste(HERVs_Family_overrepresented, collapse = ",")
+```
+
+
+### Up-regulated HERVs
+
+```{r}
+HERV_HKW <-HERVs_COVID_ann_all %>% 
+  filter(Family_group=="HERVK" | Family_group=="HERVW") %>% 
+  rownames()
+volcanoplot_all_HERVKW <- 
+  
+  EnhancedVolcano(res_all,
+    #lab = "none",
+    lab = rownames(res_all),
+    selectLab = HERV_HKW,
+    x = 'log2FoldChange',
+    y = 'padj',
+    FCcutoff = 1.5,
+    title = "Análisis de la expresión diferencial de HERVs",
+    subtitle = "")
+
+
+#volcanoplot_all_HERVKW <-
+  volcanoplot_all +
+  ggplot2::coord_cartesian(xlim=c(-7, 6)) +
+  ggplot2::scale_x_continuous(
+    breaks=seq(-7,6, 1))
+
+```
+
+
+
+```{r}
+#DEH Family group: up-regulated
+HERVs_DEH_Family_group_up <-
+  HERVs_COVID_ann_all %>%
+  group_by(Family_group) %>%
+  filter(is.na(Family_group)==FALSE & regulation_COVID=="up") %>%
+  count() %>%
+  mutate(DEH_log10=round(log10(n),3)) %>%
+  arrange(desc(DEH_log10))
+
+#agrupamos
+Family_Groups_HERVs_up <-
+  merge(FamilyGroup_HERVs_all, HERVs_DEH_Family_group_up,all.x=TRUE, by="Family_group")
+
+names(Family_Groups_HERVs_up) <- c("Family_group", "n_all", "all_log10", "n_DEH","DEH_log10")
+
+Family_Groups_HERVs_up <-
+  Family_Groups_HERVs_up %>%
+  mutate(ratio=round(n_DEH/n_all,3))
+
+##(B) log10 frequency of HERV families among the DE HERVs in our analysis 
+plot_familyG_B2 <-
+  Hist_sort(ddbb=Family_Groups_HERVs_up,var_group=Family_group,
+          ejey=DEH_log10, 
+          lab_x="Grupos de familias HERV", lab_y="log10(frecuencia de DEH)") + 
+  ylim(0, max(Family_Groups_HERVs$DEH_log10)+1) 
+
+
+##(C) Ratio of frequency of DE HERVs in our analysis divided by frequency in the database. Dashed red line indicates the expected ratio (total number of HERVs in the database divided by total number of DE HERVs).
+plot_familyG_C2 <-
+    Hist_sort(ddbb=Family_Groups_HERVs_up,var_group=Family_group,
+          ejey=ratio, 
+          lab_x="Grupos de familias HERV", lab_y="(frecuencia DEH sobreexpresados)/\n(frecuencia todos HERVs analizados)") + 
+  geom_hline(yintercept=sum(HERVs_DE_all$regulation_COVID=="up")/nrow(matrixcount_complete), linetype="dashed", color="red") + 
+  ylim(0, 0.075) 
+
+
+plot_familyG_A / plot_familyG_B2 / plot_familyG_C2 + plot_annotation(
+  tag_levels = "A" ) &
+  theme(plot.tag = element_text(size = 25))
+ggsave("HERVs_FamilyGroup_Hist_up.png", dpi = 300, , width = 40, height = 60, units = "cm",bg="white")
+```
+
+```{r}
+HERVs_Family_overrepresented <- as.character(Family_Groups_HERVs_up$Family_group[which(Family_Groups_HERVs_up$ratio>(sum(HERVs_DE_all$regulation_COVID=="up")/nrow(matrixcount_complete)))])
+paste(HERVs_Family_overrepresented, collapse = ",")
+
+HERVs_COVID_ann_all %>% 
+  filter(Family_group %in% HERVs_Family_overrepresented) %>% 
+  rownames()
+
+HERVs_COVID_ann_all %>% 
+  filter(Family_group=="HERVH" | Family_group=="HERVW" | Family_group=="ERV1") %>% 
+  rownames()
+
+```
+
+
+### Distribución de los Tipos de TE
+
+
+
+```{r}
+#HERV frequency by family group 
+
+TE_type_DEH_up <- 
+  HERVs_COVID_ann_all %>%
+  group_by(TE_type) %>%
+  filter(regulation_COVID=="up") %>%
+  count()%>% 
+  ungroup() %>% 
+  mutate(perc = `n` / sum(`n`)) %>% 
+  arrange(perc) %>%
+  mutate(labels = scales::percent(perc)) %>%
+  mutate(labels_b = paste(n,"(",labels,")" , sep=""))
+
+TE_type_HERV_DEH <- 
+  HERVs_COVID_ann_all %>%
+  filter(Class=="HERV") %>%
+  group_by(TE_type) %>%
+  #filter(regulation_COVID=="up") %>%
+  count() %>% 
+  ungroup() %>% 
+  mutate(perc = `n` / sum(`n`)) %>% 
+  arrange(perc) %>%
+  mutate(labels = scales::percent(perc)) %>%
+  mutate(labels_b = paste(n,"(",labels,")" , sep=""))
+
+TE_type_HERVs_DEH_up <- 
+  HERVs_COVID_ann_all %>%
+  group_by(TE_type) %>%
+  filter(regulation_COVID=="up" & Class=="HERV") %>%
+  count()%>% 
+  ungroup() %>% 
+  mutate(perc = `n` / sum(`n`)) %>% 
+  arrange(perc) %>%
+  mutate(labels = scales::percent(perc)) %>%
+  mutate(labels_b = paste(n,"(",labels,")" , sep=""))
+
+#exportamos la tabla de resultados
+write.table(TE_type_HERVs_DEH_up, "./TE_type_HERVs_DEH_up.csv",
+          sep=";",
+          dec = ",",
+          row.names = FALSE)
+
+
+
+plot_pie_A <- 
+  pie_plot(ddbb=TE_type_DEH_up,var_group=TE_type,ejey=n, etiquetas=labels_b) + 
+  labs(fill = "Relementos retrotransponibles sobreexpresados\nsegún su posición génica")
+
+plot_pie_B <-
+  pie_plot(ddbb=TE_type_HERV_DEH,var_group=TE_type,ejey=n, etiquetas=labels_b) + 
+  labs(fill = "HERVs diferencialmente expresados según su posición")
+
+plot_pie_C <-
+  pie_plot(ddbb=TE_type_HERVs_DEH_up,var_group=TE_type,ejey=n, etiquetas=labels_b) + 
+  labs(fill = "HERVs sobreexpresados\nsegún su posición génica")
+
+
+
+plot_pie_A + plot_pie_B  + plot_annotation(
+  tag_levels = "A" ) &
+  theme(plot.tag = element_text(size = 20))
+
+ggsave("HERVs_TEtype_Pie.png", dpi = 300, , width = 30, height = 20, units = "cm",bg="white")
+```
+
+
+### Posición en el genoma: circos plot
+
+```{r}
+#creamos base de datos con estructura adaptada
+HERVs_chrom <- 
+  HERVs_COVID_ann_all %>%
+  dplyr::select("Chrom","Start","End", "log2FoldChange") %>%
+  mutate(HERV_name = row.names(HERVs_COVID_ann_all)) %>% 
+  arrange(Chrom)
+
+HERVs_chrom <- 
+  data.frame(
+  chr = HERVs_chrom$Chrom,
+  start = HERVs_chrom$Start,
+  end = HERVs_chrom$End,
+  value=HERVs_chrom$log2FoldChange,
+  gene = HERVs_chrom$HERV_name
+)
+
+# Inicializar el circos plot
+circos.initializeWithIdeogram(species = "hg38")
+
+circos.genomicDensity(HERVs_chrom, col = c("#FF000080"), track.height = 0.1)
+
+# Limpiar el gráfico
+circos.clear()
+
+
+```
+
+
+
+```{r}
+HERVs_chrom_up <-
+  HERVs_chrom %>%
+  filter(value>0)
+
+HERVs_chrom_down <-
+  HERVs_chrom %>%
+  filter(value<0)
+
+HERVs_chrom_list = list(HERVs_chrom_up, HERVs_chrom_down)
+
+# Inicializar el circos plot
+circos.initializeWithIdeogram(species = "hg38")
+
+circos.genomicRainfall(HERVs_chrom_list, pch = 16, cex = 0.4, col = c("#FF000080", "#0000FF80"))
+#circos.genomicDensity(HERVs_chrom_up, col = c("#FF000080"), track.height = 0.1)
+#circos.genomicDensity(HERVs_chrom_down, col = c("#0000FF80"), track.height = 0.1)
+circos.genomicDensity(HERVs_chrom_list, col = c("#FF000080","#0000FF80"), track.height = 0.1)
+
+
+# Limpiar el gráfico
+circos.clear()
+```
+
+
+
+
+
+
+
+# Quantifying the expression of transcripts
+
+Salmon software was used to quantify the expression of transcripts from RNA-seq data. Salmon uses new algorithms (specifically, coupling the concept of quasi-mapping with a two-phase inference procedure) to provide accurate expression estimates very quickly (i.e. wicked-fast) and while using little memory.
+
+The quasi-mapping-based mode of Salmon runs in two phases: indexing, step independent of the reads (only need to be run one for a particular set of reference transcripts); and  quantification, step specific to the set of RNA-seq reads where index file is used to quasi-map RNA-seq reads to perform transcript quantification. 
+
+Input files needed to Salmon are:
+  - The reference transcriptome file in FASTA format: (Homo_sapiens.GRCh38.cdna.all.fa.gz)[https://ftp.ensembl.org/pub/release-112/fasta/homo_sapiens/cdna/]
+  - The index file: se construye a partir del transcritoma de referencia.
+  - The raw sequencing reads in FASTQ format.
+
+
+To perform the quasi-mapping and transcript abundance quantification, we will use the `salmon quant` command. The parameters for the command are described below:
+
+```{bash, eval=FALSE}
+salmon quant -i athal_index -l A \
+         -1 ${fn}/${samp}_1.fastq.gz \
+         -2 ${fn}/${samp}_2.fastq.gz \
+         -p 8 --validateMappings -o quants/${samp}_quant
+```
+
+-i: specify the location of the index directory;
+-l A: Format string describing the library. `A` option will automatically infer the most likely library type of the sequencing reads (e.g. stranded vs. unstranded etc.)
+--validateMappings: developed for finding and scoring the potential mapping loci of a read by performing base-by-base alignment of the reads to the potential loci, scoring the loci, and removing loci falling below a threshold score. This option improves the sensitivity and specificity of the mapping.
+-o: output quantification file name
+
+
+# Genes differential expression analysis of COVID lung samples vs. health lung samples (n=`r nrow(patients_data_all_cov_RIN)`): Corrigiendo por GC content
+
+
+3. Import and summarize our Salmon quantification using GC bias correction files to gene level expression estimates.
+
+```{r, eval=TRUE, echo=TRUE}
+
+salmonQ_GC <- dir("D:/Académico/Master Bioinformatica 2022_2023/TFM/Salmon_results_gcBias/", 
+               recursive = T, 
+               pattern = "quant.sf", 
+               full.names = T)
+
+names(salmonQ_GC) <- 
+sub("_quant_gc/quant.sf","", sub("D:/Académico/Master Bioinformatica 2022_2023/TFM/Salmon_results_gcBias/","", salmonQ_GC))
+
+
+```
+
+
+```{r}
+RNA_seq_genes_GC <- data.frame()
+Gene_no_zero_GC <- data.frame()
+for (i in 1:length(salmonQ_GC)) {
+  RNA_seq_genes_GC <-
+    RNA_seq_genes_GC %>%
+    bind_rows(colSums(read.delim(salmonQ_GC[i])[,2:5]))
+  Gene_no_zero_GC <-
+    Gene_no_zero_GC %>% 
+    bind_rows(colSums(read.delim(salmonQ_GC[i])["NumReads"]>0))
+}
+
+rownames(RNA_seq_genes_GC) <- names(salmonQ_GC)
+rownames(Gene_no_zero_GC) <- names(salmonQ_GC)
+
+
+RNA_seq_genes_gene_no_zero_GC <- merge(RNA_seq_genes_GC, Gene_no_zero_GC, by="row.names")
+rownames(RNA_seq_genes_gene_no_zero_GC) <- rownames(RNA_seq_genes_GC)
+#sin hacer porque no se estánimportandobien los datos
+```
+
+Differentially expressed genes (DEG) were analyzed using DESeq2 package. To this purpose, first, transcript counting files were imported to R using the `tximport` package.
+
+3. Import and summarize our Salmon quantification files to gene level expression estimates.
+
+```{r, eval=TRUE, echo=TRUE}
+salmonCounts_GC <- tximport(salmonQ_GC, #We must provide the paths to Salmon
+                         type = "salmon", #type of files
+                         tx2gene = Tx2Gene) #data.frame of transcript to gene mapping
+
+```
+
+The result from tximport is a list containing our summarized gene expression estimates.
+
+## DESeq2 from Tximport
+
+We can now use the `DESeqDataSetFromTximport()` to build our `DESeq2` object from salmon counts. 
+
+We must specify the metadata to `colData` parameter and specify the column of interest in design parameter as we have done for `DESeqDataSetFromMatrix()`.
+[No he filtrado ni normalizado]
+
+```{r, eval=TRUE, echo=TRUE}
+patients_data_Salmon_GC <- patients_data_all_cov_RIN[colnames(salmonCounts_GC$abundance),]
+
+ddsSalmon_import_GC  <- DESeqDataSetFromTximport(salmonCounts_GC, 
+                                      colData = patients_data_Salmon_GC, 
+                                      design = ~ condition)
+
+```
+
+## Pre-filtering
+
+```{r}
+#buscamos HERVs que no se expresen en los controles pero sí en los enfermos
+keep_v02_S_GC <- rowSums(counts(ddsSalmon_import_GC)>min_counts) >= n_samples
+ddsSalmon_filtered_GC <- ddsSalmon_import_GC[keep_v02_S_GC,]
+```
+
+
+## DE analysis
+
+```{r}
+ddsSalmon_GC <- DESeq(ddsSalmon_filtered_GC)
+res_DEG_uni_GC <- results(ddsSalmon_GC, alpha=0.1)
+
+DEG_uni_GC <- res_DEG_uni_GC[res_DEG_uni_GC$padj<0.05 & is.na(res_DEG_uni_GC$padj)==FALSE & abs(res_DEG_uni_GC$log2FoldChange)>1.5 ,]
+
+DEG_uni_GC[order(DEG_uni_GC$padj),][1:10,]
+#saveRDS(ddsSalmon_GC,"dds_DEG_filtered_GC.rds")
+#saveRDS(DEG_uni_GC,"DEG_uni_GC.rds")
+```
+
+
+```{r, volcanoplotDEGs}
+volcanoplot_all_GC <- 
+  
+  EnhancedVolcano(res_DEG_uni_GC,
+    lab = NA,
+    x = 'log2FoldChange',
+    y = 'padj',
+    FCcutoff = 1.5,
+    title = "",
+    subtitle = "")
+
+
+
+
+volcanoplot_all_GC 
+  #+ ggplot2::coord_cartesian(xlim=c(-7, 6)) +
+  #ggplot2::scale_x_continuous(
+  #  breaks=seq(-7,6, 1))
+
+```
+
+
+Gene expression differences were considered significant if the adjusted p-value was <0.05 and the absolute log2-fold change was higher than 1.5. `r nrow(DEG_uni)` of `r nrow(res_DEG_uni)` genes analyzed were differentially expressed (DE) between `r sum(patients_data_all_cov_RIN$condition=="COVID")` COVID samples and `r sum(patients_data_all_cov_RIN$condition=="Control")` health lung samples; `r sum(DEG_uni$regulation_COVID=="up")` genes were upregulated, and `r sum(DEG_uni$regulation_COVID=="down")` were downregulated in COVID samples.
+
+
+## Annotation of results table
+
+```{r}
+Gene_ann_GC <- AnnotationDbi::select(org.Hs.eg.db,
+                 keys = rownames(DEG_uni_GC),
+                 keytype = "ENTREZID",
+                 columns="SYMBOL")
+Gene_ann_GC[1:10,]
+
+DEG_uni_ann_GC <- merge(Gene_ann_GC,as.data.frame(DEG_uni_GC),
+                      by.x=1,
+                      by.y=0,
+                      all.x=FALSE,
+                      all.y=TRUE)
+rownames(DEG_uni_ann_GC) <- DEG_uni_ann_GC$ENTREZID
+
+DEG_uni_ann_GC[1:10,]
+
+#write.table(DEG_uni_ann_GC, "./DEG_COVID_n19_univariate_GC.csv",
+ #         sep=";",
+  #        dec = ",",
+   #       row.names = FALSE)
+
+```
+
+## Functional enrichment
+
+```{r, eval=TRUE}
+enrichment_gene_v02 <- gost(query = DEG_uni_ann_GC$ENTREZID[DEG_uni_ann_GC$log2FoldChange>0], 
+                organism = "hsapiens", ordered_query = FALSE, 
+                multi_query = FALSE, significant = TRUE, exclude_iea = FALSE, 
+                measure_underrepresentation = FALSE, evcodes = TRUE, 
+                user_threshold = 0.05, correction_method = "g_SCS", 
+                domain_scope = "annotated", custom_bg = NULL, 
+                numeric_ns = "", sources = NULL, highlight = TRUE)
+
+
+enrich_result_chrm <-
+  enrichment_gene_v02$result %>% 
+  filter(grepl('*chrom*', term_name))
+
+enrich_result_methyl <-
+  enrichment_gene_v02$result %>% 
+  filter(grepl('*methyl*', term_name))
+
+enrich_result_stimulus <-
+  enrichment_gene_v02$result %>% 
+  filter(grepl('*stimulus*', term_name))
+
+enrich_gene_up <- 
+  rbind(enrich_result_chrm, enrich_result_methyl, enrich_result_stimulus)
+
+
+
+enrich_gene_up_plot <- 
+  ggplot(enrich_gene_up, aes(x = intersection_size, y = term_name, fill=term_name)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(x = "Tamaño de intersección\n", y = "\n Términos Reactome",
+       # title = "Análisis funcional \n"
+       ) +
+  theme_bw() + theme(legend.position = "none") 
+
+enrich_gene_up_plot
+
+```
+
+
+
+## Posición en el genoma de los DEG
+
+
+Podríamos obtener las posiciones genómicas:
+
+- Opción A: usando el paquete `txdb`. Al hacerlo así nos da las posiciones de todos los transcriptos y no del gen global. 
+```{r, eval=FALSE}
+myGeneSymbols <- AnnotationDbi::select(org.Hs.eg.db,
+                        keys = Gene_ann_GC$SYMBOL,
+                        columns = c("SYMBOL","ENTREZID"),
+                        keytype = "SYMBOL")
+
+myGeneSymbolsTx <- AnnotationDbi::select(TxDb.Hsapiens.UCSC.hg38.knownGene,
+                          keys = myGeneSymbols$ENTREZID,
+                          columns = c("GENEID", "TXID", "TXCHROM", "TXSTART", "TXEND"),
+                          keytype = "GENEID")
+```
+
+- B) Biomart: al hacerlo así no me reconoce todos los genes DEG
+```{r, eval=TRUE}
+mart_object_mygenes <- useMart('ensembl', dataset='hsapiens_gene_ensembl') # create a mart object
+
+my_genes = Gene_ann_GC$SYMBOL
+
+mybdd <- getBM(mart=mart_object_mygenes, attributes=c('hgnc_symbol', 'description', 'chromosome_name',
+                                 'start_position', 'end_position', 'strand',
+                                 'ensembl_gene_id'),
+            filters='hgnc_symbol', values=my_genes) # where df is a data.frame with all your requested info
+
+```
+
+
+```{r}
+DEG_chrom_FC <- 
+  merge(mybdd[,c("chromosome_name","start_position","end_position", "hgnc_symbol")], DEG_uni_ann_GC, by.x="hgnc_symbol", by.y="SYMBOL")
+
+
+
+#creamos base de datos con estructura adaptada
+DEG_chrom <- 
+  DEG_chrom_FC %>%
+  filter(!grepl("^H", chromosome_name)) %>%
+  mutate(chr=paste("chr",chromosome_name, sep="")) %>%
+  dplyr::select("chr","start_position","end_position", "log2FoldChange","hgnc_symbol") %>%
+  arrange(chr)
+
+
+DEG_chrom_sort <- 
+  data.frame(
+  chr = DEG_chrom$chr,
+  start = DEG_chrom$start_position,
+  end = DEG_chrom$end_position,
+  value = DEG_chrom$log2FoldChange,
+  gene = DEG_chrom$hgnc_symbol
+)
+
+
+DEG_chrom_sort_up <-
+  DEG_chrom_sort %>%
+  filter(value>0)
+
+DEG_chrom_sort_down <-
+  DEG_chrom_sort %>%
+  filter(value<0)
+
+DEGs_chrom_list = list(DEG_chrom_sort_up, DEG_chrom_sort_down)
+
+# Inicializar el circos plot
+circos.initializeWithIdeogram(species = "hg38")
+
+circos.genomicRainfall(DEGs_chrom_list, pch = 16, cex = 0.4, col = c("#FF000080", "#0000FF80"))
+#circos.genomicDensity(HERVs_chrom_up, col = c("#FF000080"), track.height = 0.1)
+#circos.genomicDensity(HERVs_chrom_down, col = c("#0000FF80"), track.height = 0.1)
+circos.genomicDensity(DEGs_chrom_list, col = c("#FF000080","#0000FF80"), track.height = 0.1)
+
+
+# Limpiar el gráfico
+circos.clear()
+```
+
+ 
+
+
+
+```{r, echo=FALSE, eval=FALSE}
+#limpiando el entorno
+rm(#data_samplequality_novogene, 
+quality_RNA,
+RNAseq_raw_quality,
+qualityanalysis,
+dirs_fastaqc,
+files,
+#file_names,
+RNA_seq_HERVs,
+matrixcount_all,
+patients_data_all,
+matrixcount_complete,
+patient_HERvs_list,
+patients_data_all_cov,
+#patients_data_all_cov_RIN,
+temp,
+Tx2Gene,
+salmonQ,
+RNA_seq_genes,
+Gene_no_zero,
+RNA_seq_genes_gene_no_zero,
+Run_stats_Telescope,
+Run_stats_Telescope_group,
+Run_stats_Telescope_group_v02,
+dds_all,
+#min_counts,
+#n_samples,
+#keep_v02_A,
+dds_prefil_all,
+#dds_DE_all,
+HERVs_DE_n_all,
+#HERVs_DE_all,
+volcanoplot_all,
+volcanoplot_all_DEH,
+rowranges,
+HERVs_family_counts,
+HERVs_annotation,
+#HERVs_DE_ann_all,
+HERVs_DE_class,
+HERVs_DE_class_group,
+HERVs_DE_FamilyGroup,
+HERVs_DE_FamilyGroup_group,
+Family_Group_all,
+HERVs_DE_Family,
+HERVs_DE_Family_group,
+Family_all,
+Family_HERVs_all,
+HERVs_DEH_Family,
+Family_HERVs,
+plot_family_A,
+plot_family_B,
+plot_family_C,
+HERVs_Family_overrepresented,
+FamilyGroup_HERVs_all,
+HERVs_DEH_Family_group,
+Family_Groups_HERVs,
+plot_familyG_A,
+plot_familyG_B,
+plot_familyG_C,
+HERVs_DEH_Family_group_up,
+Family_Groups_HERVs_up,
+plot_familyG_B2,
+#plot_familyG_C2,
+TE_type_HERVs_DEH_up,
+TE_type_HERV_DEH,
+TE_type_L1_DEH,
+plot_pie_A,
+plot_pie_B,
+plot_pie_C,
+#HERVs_chrom,
+#HERVs_chrom_up,
+#HERVs_chrom_down,
+patients_cc,
+matrixcount_cc,
+dds_all_sexo,
+keep_v02_sexo,
+dds_prefil_all_sexo,
+dds_DE_all_sexo,
+res_all_sexo,
+HERVs_DE_all_sexo,
+salmonQ_GC,
+RNA_seq_genes_GC,
+Gene_no_zero_GC,
+RNA_seq_genes_gene_no_zero_GC,
+salmonCounts_GC,
+patients_data_Salmon_GC,
+ddsSalmon_import_GC,
+keep_v02_S_GC,
+ddsSalmon_filtered_GC,
+#ddsSalmon_GC,
+#DEG_uni_GC,
+volcanoplot_all_GC,
+Gene_ann_GC,
+DEG_uni_ann_GC,
+myGeneSymbols,
+myGeneSymbolsTx,
+mart_object_mygenes,
+my_genes,
+mybdd,
+#DEG_chrom_FC,
+#DEG_chrom,
+#DEG_chrom_sort,
+#DEG_chrom_sort_up,
+#DEG_chrom_sort_down,
+#DEGs_chrom_list
+)
+```
+
+
+# Integrate analysis
+
+
+## Posición en le genoma de todos los elementos génicos identificados
+```{r}
+# Inicializar el circos plot
+circos.initializeWithIdeogram(species = "hg38")
+
+#circos.genomicRainfall(DEGs_chrom_list, pch = 16, cex = 0.4, col = c("#FF000080", "#0000FF80"))
+circos.genomicDensity(DEGs_chrom_list, col = c("#FF000080","#0000FF80"), track.height = 0.1)
+#circos.genomicRainfall(HERVs_chrom_list, pch = 16, cex = 0.4, col = c("#FF000080", "#0000FF80"))
+circos.genomicDensity(HERVs_chrom_list, col = c("#FF000080","#0000FF80"), track.height = 0.1)
+
+```
+
+
+```{r, eval=FALSE}
+#limpiando el entorno
+rm(
+#patients_data_all_cov_RIN,
+#HERVs_DE_ann_all,
+#HERVs_chrom,
+#HERVs_chrom_up,
+#HERVs_chrom_down,
+DEG_chrom_FC,
+DEG_chrom,
+DEG_chrom_sort,
+DEG_chrom_sort_up,
+DEG_chrom_sort_down,
+DEGs_chrom_list
+)
+```
+
+## Co-expression analysis (n=`r nrow(patients_data_all_cov_RIN)`)
+
+
+## Preparing input:
+
+
+### Normalizing matrix counts con DEG and DHERVs
+
+First of all, expression matrix containing HERVs and genes that were differentially expressed in COVID samples were merged:
+
+```{r, eval=TRUE}
+
+#normalizar matriz conteos HERVs 
+HERVs_mcount_vst <- vst(assay(dds_DE_all))
+#normalizar matriz conteos Genes
+Genes_mcount_vst <- vst(assay(ddsSalmon_GC))
+
+Genes_HERVs_mcounts_vst <- 
+  bind_rows(
+  as.data.frame(HERVs_mcount_vst), 
+  as.data.frame(Genes_mcount_vst))
+  
+#comprobamos que se han unido bien las bbdd
+identical(as.numeric(Genes_HERVs_mcounts_vst["ERV316A3_10q24.2",colnames(Genes_HERVs_mcounts_vst)]),
+          as.numeric(HERVs_mcount_vst["ERV316A3_10q24.2",colnames(Genes_HERVs_mcounts_vst)]))
+
+#formatting: genes as columns and samples as rows.
+Genes_HERVs_mcounts_vst_t <- as.data.frame(t(Genes_HERVs_mcounts_vst))
+
+```
+
+```{r, eval=TRUE}
+#número de genes-columnas
+ncol(Genes_HERVs_mcounts_vst_t)
+#número de muestras-filas
+nrow(Genes_HERVs_mcounts_vst_t)
+
+#aseguramos que es una matriz de expresión:
+is_data_expr(Genes_HERVs_mcounts_vst_t)
+```
+#### Filtering
+
+```{r}
+Genes_HERVs_mcounts_vst_t_filtered <- filter_RNA_seq((filter_low_var(Genes_HERVs_mcounts_vst_t, pct = 0.7, type = "median"))
+, min_count=9, method = "mean")
+
+
+#saveRDS(Genes_HERVs_mcounts_vst_t_filtered, "Genes_HERVs_mcounts_vst_t_filtered_lowvar07_mincount9_20240611.rds")
+
+#Genes_HERVs_mcounts_vst_t_filtered <- readRDS("Genes_HERVs_mcounts_vst_t_filtered_lowvar07_mincount9_20240611.rds")
+```
+
+
+
+#### Network building
+
+Exploramos el poder de que se aplicará a la matriz:
+
+```{r, eval=FALSE}
+threads_to_use <- 2
+net_DE <- build_net(Genes_HERVs_mcounts_vst_t_filtered,
+                    n_threads = threads_to_use, #paralizamos
+                    fit_cut_off=0.8, #por defectoes0.9
+                    cor_func = "spearman")
+#saveRDS(net_DE, "net_DEG_GC_n19_filtered_20240715.rds")
+```
+
+```{r}
+net_DE <- read_rds("D:/Académico/Master Bioinformatica 2022_2023/TFM/memoria/TFM analysis/net_DEG_GC_n19_filtered_20240715.rds")
+# Power selected :
+net_DE$metadata$power
+#> [1] 8
+
+# Fit of the power law to data ($R^2$) :
+fit_power_table <- net_DE$metadata$fit_power_table
+fit_power_table[fit_power_table$Power == net_DE$metadata$power, "SFT.R.sq"]
+
+plot(fit_power_table$SFT.R.sq ~ fit_power_table$Power)
+
+#png("NET_fig_power.png", res = 300, width = 25, height = 20, units = "cm")
+ggplot(fit_power_table, aes(x = Power, y = SFT.R.sq)) +
+  geom_point(size=3) + theme_bw() + 
+  geom_hline(yintercept=0.8, linetype="dashed", color="red") +
+  theme(#axis.title.x = element_text(size = 5),
+        axis.text.x = element_text(size=10),
+        axis.text.y = element_text(size = 10))
+#dev.off()
+```
+El poder detectado es 12, cercano a 9, el valor ideal para matrices de co-expresión unsigned. Valores altos dice el autor que pueden deberse a valores de fit muy altos, que no sería el caso porque hemos fijado 0.8; un filtrado excesivo de los datos rompiendo la propiedad de la escala libre, lo que tampoco tendría sentido porque hemos dejado un número considerable de genes y HERVs; o un número insuficiente de muestras, que sí podría ser el motivo ya que no llegan a 20 muestras.
+
+
+
+#### Modules detection
+
+La red creada es un grafo completo dónde todos los nodos están conectados a los otros nodos con diferentes nivelesde fuerza.
+
+co-expression networks have a scale free property.
+
+Los grupos de genes que están fuertemente unidos a otros grupos se denominan módulos, y se asumen que esto es indicativo de que los genes trabajan juntos en un conjunto de funciones comunes.
+
+Para detectar los módulo, GWENA utiliza por defecto métodos de clustering jerárquico, y aprendizaje no supervisado; pero se pueden utilizar otros métodos (kmeans, Gaussian mixture models, etc.).
+
+
+
+```{r, eval=FALSE}
+modules <- detect_modules(Genes_HERVs_mcounts_vst_t_filtered, 
+                            net_DE$network, 
+                            detailled_result = TRUE,
+                            merge_threshold = 0.25)
+
+#saveRDS(modules, "modules_n19_20240715.rds")
+```
+
+
+```{r}
+modules <-
+  readRDS("D:/Académico/Master Bioinformatica 2022_2023/TFM/memoria/TFM analysis/modules_n19_20240715.rds")
+# Number of modules before merging :
+length(unique(modules$modules_premerge))
+# Number of modules after merging: 
+length(unique(modules$modules))
+
+layout_mod_merge <- plot_modules_merge(
+  modules_premerge = modules$modules_premerge, 
+  modules_merged = modules$modules)
+
+#Resulting modules contain more genes whose repartition can be seen by a simple barplot.
+ggplot2::ggplot(data.frame(modules$modules %>% stack), 
+                ggplot2::aes(x = ind)) + ggplot2::stat_count() +
+  ggplot2::ylab("Number of genes") +
+  ggplot2::xlab("Module")
+
+# Each of the modules presents a distinct profile, which can be plotted in two figures to separate the positive (+ facet) and negative (- facet) correlations profile. As a summary of this profile, the eigengene (red line) is displayed to act as a signature.
+#plot_expression_profiles(Genes_HERVs_mcounts_vst_t_filtered, modules$modules)
+
+#ggsave("Figura_module_profile.png", dpi = 300, , width = 40, height = 20, units = "cm",bg="white")
+
+
+rm(layout_mod_merge)
+```
+En el módulo 0 se encuentran todos los egenes que no se ajustan a ningún módulo.
+
+```{r}
+
+for (i in 1:length(modules$modules)) {
+  print(paste("Modulo",i-1,sep=""))
+  print(paste("DEG:",sum(rownames(DEG_uni_GC) %in% modules$modules[[i]])))
+  print(paste("DET:",sum(rownames(HERVs_DE_all) %in% modules$modules[[i]])))
+}
+
+```
+
+
+
+#### Biological integration
+
+##### Phenotypic association
+
+If phenotypic information is available about the samples provided, an association test can help to determine if a module is specifically linked to a trait.
+
+```{r, eval=TRUE}
+#comprobamos que todo coincide
+identical(rownames(patients_data_all_cov_RIN),rownames(Genes_HERVs_mcounts_vst_t_filtered))
+
+patients_data_all_GWENA <- patients_data_all_cov_RIN
+patients_data_all_GWENA$condition <- as.character(patients_data_all_GWENA$condition)
+
+
+patients_data_all_GWENA_sex <- patients_data_all_cov_RIN[rownames(Genes_HERVs_mcounts_vst_t_filtered),c("expediente", "condition", "sexo")]
+str(patients_data_all_GWENA_sex)
+patients_data_all_GWENA_sex$condition <- as.character(patients_data_all_GWENA_sex$condition)
+patients_data_all_GWENA_sex$sexo <- as.character(patients_data_all_GWENA_sex$sexo)
+
+phenotype_association <- associate_phenotype(
+  modules$modules_eigengenes, 
+  (patients_data_all_GWENA_sex %>% dplyr::select(c(condition, sexo))))
+#con una sola cov da error la matriz de correlación
+
+plot_modules_phenotype(phenotype_association)
+
+```
+
+##### Functional enrichment
+
+```{r, eval=TRUE}
+enrichment <- bio_enrich(modules$modules[c("1","3")])
+enrichment_mod1_mod3_all <-
+  plot_enrichment(enrichment, interactive=FALSE)
+rm(enrichment)
+
+#creamos lista con DEH y DET en módulos 1 y 3
+multi_module <- list(mod1 = c(modules$modules$`1`[modules$modules$`1` %in% rownames(DEG_uni_GC)],modules$modules$`1`[modules$modules$`1` %in% rownames(HERVs_DE_ann_all)]),
+                     mod3 = c(modules$modules$`3`[modules$modules$`3` %in% rownames(DEG_uni_GC)],modules$modules$`3`[modules$modules$`3` %in% rownames(HERVs_DE_ann_all)]))
+
+enrichment_mod1_mod3 <-
+  plot_enrichment(bio_enrich(multi_module), interactive=FALSE)
+
+enrichment_mod1_mod3_all
+enrichment_mod1_mod3 + scale_fill_brewer(palette = "Set1")
+
+```
+
+```{r}
+enrichment_mod1_mod3_REACTOME <- 
+  enrichment_mod1_mod3$data %>% 
+  filter(source=="REAC") %>% 
+  arrange(desc(intersection_size)) %>% 
+  head(n=20L)
+
+enrichment_mod1_mod3_KEGG <- 
+  enrichment_mod1_mod3$data %>% 
+  filter(source=="KEGG") %>% 
+  arrange(desc(intersection_size)) 
+  
+
+enrichment_mod3_all <- 
+  enrichment_mod1_mod3_all$data %>% 
+  filter(query=="3") %>% 
+  arrange(desc(intersection_size))
+
+enrichment_mod3_KEGG_REACT_all <- 
+   enrichment_mod1_mod3_all$data %>% 
+   filter((source=="KEGG" | source=="REAC") & query=="3") %>% 
+   arrange(desc(intersection_size))
+
+write.table(enrichment_mod3_all[,c("query","p_value","term_size","query_size","intersection_size",  "source", "term_name")], "./enrichment_mod3complete.csv",
+            sep=";",
+            dec = ",",
+            row.names = FALSE)
+
+write.table(enrichment_mod3_KEGG_REACT_all[,c("query","p_value","term_size","query_size","intersection_size",  "source", "term_name")], "./enrichment_mod3complete_KEGG_REACT.csv",
+            sep=";",
+            dec = ",",
+            row.names = FALSE)
+
+enrichment_mod1_mod3$data
+
+EP_mod1_mo3_REACTOME <- 
+  ggplot(enrichment_mod1_mod3_REACTOME, aes(x = intersection_size, y = term_name, fill=term_name)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(x = "Tamaño de intersección\n", y = "\n Términos Reactome",
+       title = "Análisis funcional \n") +
+  #scale_x_discrete(labels = c("Drug", "Gas", "Gun", "Hang", "Jump", "Other")) +
+  #scale_fill_discrete(labels=c("Middle Aged", "Old", "Young")) +
+  facet_grid(. ~ query ) + theme_bw() + theme(legend.position = "none")
+
+EP_mod1_mo3_KEGG <- 
+ggplot(enrichment_mod1_mod3_KEGG, aes(x = intersection_size, y = term_name, fill=term_name)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(x = "Tamaño de intersección\n", y = "\n Términos KEGG") +
+  #scale_x_discrete(labels = c("Drug", "Gas", "Gun", "Hang", "Jump", "Other")) +
+  #scale_fill_discrete(labels=c("Middle Aged", "Old", "Young")) +
+  facet_grid(. ~ query ) + theme_bw() + theme(legend.position = "none")
+
+
+  
+```
+
+
+```{r}
+EGD_mod3 <- c(modules$modules$`3`[modules$modules[[4]] %in% rownames(DEG_uni_GC)], modules$modules$`3`[modules$modules[[4]] %in% rownames(HERVs_DE_all)])
+
+#png("Figura_heatmap_HERVs_DEG_mod3.png", res = 300, width = 25, height = 20, units = "cm")
+
+heatmap(as.matrix(Genes_HERVs_mcounts_vst[EGD_mod3,]))
+
+#dev.off()
+```
+
+
+
+# Final figures
+
+## DEH Figure
+
+
+```{r, eval=TRUE}
+(volcanoplot_all_DEH  + plot_pie_C) / ( plot_familyG_C2 )  + plot_annotation(
+  tag_levels = "A" ) &
+  theme(plot.tag = element_text(size = 25))
+
+ggsave("Figura_HERVs_DEH_up_HERVKW.png", dpi = 300, , width = 40, height = 40, units = "cm",bg="white")
+```
+
+
+## DEG figure
+
+```{r, eval=TRUE}
+volcanoplot_all_GC / enrich_gene_up_plot + plot_annotation(
+  tag_levels = "A" ) &
+  theme(plot.tag = element_text(size = 25))
+#ggsave("Figura_HERVs_DEG_FE.png", dpi = 300, , width = 25, height = 25, units = "cm",bg="white")
+```
+
+
+## Circle plot with DEG and DEH
+
+```{r, eval=FALSE}
+
+#png("Figura_Circleplot_HERVs_DEG_v02.png", res = 300, width = 15, height = 15, units = "cm")
+
+# Inicializar el circos plot
+circos.initializeWithIdeogram(species = "hg38")
+
+#circos.genomicRainfall(DEGs_chrom_list, pch = 16, cex = 0.4, col = c("#FF000080", "#0000FF80"))
+circos.genomicDensity(DEGs_chrom_list, col = c("#FF000080","#0000FF80"), track.height = 0.1)
+#circos.genomicRainfall(HERVs_chrom_list, pch = 16, cex = 0.4, col = c("#FF000080", "#0000FF80"))
+circos.genomicDensity(HERVs_chrom_list, col = c("#FF000080","#0000FF80"), track.height = 0.1)
+
+
+
+#dev.off()
+
+# Limpiar el gráfico
+circos.clear()
+```
+
+## CO-expression analysis
+
+```{r, eval=FALSE}
+plot_coexpression_modulos <-
+  ggplot2::ggplot(data.frame(modules$modules %>% stack), 
+                ggplot2::aes(x = ind, fill=ind)) + ggplot2::stat_count() +
+  ggplot2::ylab("Número de elementos genómicos") +
+  ggplot2::xlab("Modulo") +
+  theme_classic() + theme(legend.position = "none") + scale_fill_brewer(palette = "BuPu")
+
+plot_coexpression_pheno <-
+  plot_modules_phenotype(phenotype_association)  +
+  ggplot2::ylab("Fenotipo") +
+  ggplot2::xlab("Modulo")
+
+# design <- "
+#   1##2
+#   3344
+#   3344
+# "
+
+(plot_coexpression_modulos + plot_coexpression_pheno) / ( enrichment_mod1_mod3 + EP_mod1_mo3_KEGG) + plot_annotation(
+  tag_levels = "A" ) &
+  theme(plot.tag = element_text(size = 20)) 
+# +
+#   plot_layout(design = design)
+
+ggsave("Figura_modulo_Coexpression.png", dpi = 300, , width = 40, height = 30, units = "cm",bg="white")
+```
+
+
